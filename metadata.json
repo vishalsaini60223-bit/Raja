@@ -1,0 +1,6 @@
+{
+  "name": "Jio Panal",
+  "description": "Luxury commission & account activation panel with Gmail login, biometric security, UPI/QR deposits, live transaction ticker, 24/7 support chat, multi-language UI, and secure admin controls.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
