@@ -1,6 +1,7 @@
 package com.example.ui
 
 import android.app.Application
+import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.model.AdminVaultEntity
@@ -14,10 +15,16 @@ import com.example.data.model.UserAccountEntity
 import com.example.data.prefs.UserPreferences
 import com.example.data.repository.JioPanalRepository
 import com.example.ui.i18n.AppLanguage
+import com.example.util.Formatters
+import com.example.util.GoogleAuthHelper
+import com.google.firebase.auth.FirebaseUser
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -33,10 +40,13 @@ enum class AuthStage {
 
 data class JioPanalUiState(
     val isLoading: Boolean = true,
+    val isAuthBusy: Boolean = false,
     val preferences: UserPreferences = UserPreferences(),
     val language: AppLanguage = AppLanguage.ENGLISH,
     val authStage: AuthStage = AuthStage.SPLASH,
+    val authEmail: String? = null,
     val user: UserAccountEntity? = null,
+    val availableBalance: Double = 0.0,
     val transactions: List<TransactionEntity> = emptyList(),
     val payoutMethods: List<PayoutMethodEntity> = emptyList(),
     val alerts: List<NotificationAlertEntity> = emptyList(),
@@ -57,6 +67,7 @@ data class JioPanalUiState(
 
 private data class SessionAuxState(
     val splashDone: Boolean = false,
+    val isAuthBusy: Boolean = false,
     val isSessionUnlocked: Boolean = false,
     val isAdminUnlocked: Boolean = false,
     val isPanelRunning: Boolean = false,
@@ -69,19 +80,30 @@ class JioPanalViewModel(application: Application) : AndroidViewModel(application
 
     private val repository = JioPanalRepository(application.applicationContext)
     private val auxState = MutableStateFlow(SessionAuxState())
+    private val authUserFlow: Flow<FirebaseUser?> = repository.observeAuthUser()
 
-    private val userDataFlow = repository.preferencesFlow.flatMapLatest { prefs ->
-        val email = prefs.loggedInEmail
-        if (email.isNullOrBlank()) {
+    private fun <T> Flow<T>.safeCatch(fallback: T): Flow<T> = catch { err ->
+        if (err is CancellationException) throw err
+        auxState.value = auxState.value.copy(
+            errorMessage = err.localizedMessage ?: "Cloud sync permission error"
+        )
+        emit(fallback)
+    }
+
+    private val userDataFlow = authUserFlow.flatMapLatest { fbUser ->
+        if (fbUser == null) {
             flowOf(UserScopedBundle())
         } else {
+            val uid = fbUser.uid
             combine(
-                repository.observeUser(email),
-                repository.observeTransactions(email),
-                repository.observePayoutMethods(email),
-                repository.observeAlerts(email),
-                repository.observeSupportMessages(email),
-                repository.observeReferrals(email)
+                repository.observeUser(uid).safeCatch(null),
+                repository.observeTransactions(uid).safeCatch(emptyList()),
+                repository.observePayoutMethods(uid).safeCatch(emptyList()),
+                repository.observeAlerts(uid).safeCatch(emptyList()),
+                repository.observeSupportMessages(uid).safeCatch(emptyList()),
+                repository.observeReferrals(uid).safeCatch(emptyList()),
+                repository.observeLiveTicker().safeCatch(emptyList()),
+                repository.observePublicConfig().safeCatch(AdminVaultEntity())
             ) { values ->
                 @Suppress("UNCHECKED_CAST")
                 UserScopedBundle(
@@ -90,57 +112,79 @@ class JioPanalViewModel(application: Application) : AndroidViewModel(application
                     payoutMethods = values[2] as List<PayoutMethodEntity>,
                     alerts = values[3] as List<NotificationAlertEntity>,
                     supportMessages = values[4] as List<SupportMessageEntity>,
-                    referrals = values[5] as List<ReferralEntity>
+                    referrals = values[5] as List<ReferralEntity>,
+                    liveTicker = values[6] as List<LiveTickerEntity>,
+                    publicConfig = values[7] as AdminVaultEntity
                 )
             }
         }
     }
 
-    private val adminBundleFlow = combine(
-        repository.adminVaultFlow,
-        repository.pendingTransactionsFlow,
-        repository.allUsersFlow,
-        repository.allTransactionsFlow,
-        repository.liveTickerFlow
-    ) { vault, pending, users, allTx, ticker ->
-        AdminBundle(
-            vault = vault ?: AdminVaultEntity(),
-            pendingApprovals = pending,
-            allUsers = users,
-            allTransactions = allTx,
-            liveTicker = ticker
-        )
+    private val adminBundleFlow = authUserFlow.flatMapLatest { fbUser ->
+        val isVerifiedAdmin = fbUser != null &&
+            fbUser.isEmailVerified &&
+            fbUser.email?.trim()?.lowercase() == AdminVaultEntity.AUTHORIZED_ADMIN_EMAIL
+        if (!isVerifiedAdmin) {
+            flowOf(AdminBundle())
+        } else {
+            combine(
+                repository.observeAdminVault().safeCatch(AdminVaultEntity()),
+                repository.observePendingTransactions().safeCatch(emptyList()),
+                repository.observeAllUsers().safeCatch(emptyList()),
+                repository.observeAllTransactions().safeCatch(emptyList())
+            ) { vault, pending, users, allTx ->
+                AdminBundle(
+                    vault = vault,
+                    pendingApprovals = pending,
+                    allUsers = users,
+                    allTransactions = allTx
+                )
+            }
+        }
     }
 
     val uiState: StateFlow<JioPanalUiState> = combine(
         repository.preferencesFlow,
+        authUserFlow,
         auxState,
         userDataFlow,
         adminBundleFlow
-    ) { prefs, aux, userBundle, adminBundle ->
+    ) { prefs, fbUser, aux, userBundle, adminBundle ->
+        val currentEmail = fbUser?.email?.trim()?.lowercase()
         val stage = when {
             !aux.splashDone -> AuthStage.SPLASH
-            prefs.loggedInEmail.isNullOrBlank() -> AuthStage.EMAIL_INPUT
+            fbUser == null -> AuthStage.EMAIL_INPUT
             prefs.biometricEnabled && !aux.isSessionUnlocked -> AuthStage.BIOMETRIC_LOCK
             else -> AuthStage.AUTHENTICATED
         }
-        val isAuthorizedAdmin =
-            prefs.loggedInEmail?.trim()?.lowercase() == AdminVaultEntity.AUTHORIZED_ADMIN_EMAIL
-        val isUserActive = userBundle.user?.status == UserAccountEntity.STATUS_ACTIVE
+        val isAuthorizedAdmin = fbUser != null &&
+            fbUser.isEmailVerified &&
+            currentEmail == AdminVaultEntity.AUTHORIZED_ADMIN_EMAIL
+        val user = userBundle.user
+        val isUserActive = user?.status == UserAccountEntity.STATUS_ACTIVE
+        val pendingWithdrawals = userBundle.transactions
+            .filter { it.type == TransactionEntity.TYPE_WITHDRAWAL && it.status == TransactionEntity.STATUS_PENDING }
+            .sumOf { it.amount }
+        val availableBal = ((user?.walletBalance ?: 0.0) - pendingWithdrawals).coerceAtLeast(0.0)
+        val mergedVault = if (isAuthorizedAdmin) adminBundle.vault else userBundle.publicConfig
+
         JioPanalUiState(
             isLoading = false,
+            isAuthBusy = aux.isAuthBusy,
             preferences = prefs,
             language = AppLanguage.fromCode(prefs.languageCode),
             authStage = stage,
-            user = userBundle.user,
+            authEmail = currentEmail ?: prefs.loggedInEmail,
+            user = user,
+            availableBalance = availableBal,
             transactions = userBundle.transactions,
             payoutMethods = userBundle.payoutMethods,
             alerts = userBundle.alerts,
             unreadAlertCount = userBundle.alerts.count { !it.isRead },
             supportMessages = userBundle.supportMessages,
             referrals = userBundle.referrals,
-            liveTicker = adminBundle.liveTicker,
-            adminVault = adminBundle.vault,
+            liveTicker = userBundle.liveTicker,
+            adminVault = mergedVault,
             pendingApprovals = adminBundle.pendingApprovals,
             allUsers = adminBundle.allUsers,
             allTransactions = adminBundle.allTransactions,
@@ -156,28 +200,46 @@ class JioPanalViewModel(application: Application) : AndroidViewModel(application
         initialValue = JioPanalUiState()
     )
 
-    init {
-        viewModelScope.launch {
-            repository.ensureInitialized()
-        }
-    }
-
     fun finishSplash() {
         auxState.value = auxState.value.copy(splashDone = true)
     }
 
-    fun loginWithPassword(email: String, password: String, referralCode: String) {
+    fun trySilentGoogleSignIn(activityContext: Context) {
+        if (auxState.value.isAuthBusy) return
         viewModelScope.launch {
-            val result = repository.loginOrRegisterWithPassword(email, password, referralCode)
-            result.onSuccess {
-                auxState.value = auxState.value.copy(
-                    isSessionUnlocked = true,
-                    errorMessage = null,
-                    feedbackMessage = null
-                )
+            val res = GoogleAuthHelper.signInSilentIfAuthorized(activityContext)
+            val fbUser = res.getOrNull()
+            if (fbUser != null) {
+                repository.syncSignedInUser(fbUser)
+                auxState.value = auxState.value.copy(isSessionUnlocked = false, errorMessage = null)
+            }
+        }
+    }
+
+    fun signInWithGoogle(activityContext: Context, referralCode: String = "") {
+        if (auxState.value.isAuthBusy) return
+        auxState.value = auxState.value.copy(isAuthBusy = true, errorMessage = null)
+        viewModelScope.launch {
+            val authRes = GoogleAuthHelper.signInInteractive(activityContext)
+            authRes.onSuccess { fbUser ->
+                val syncRes = repository.syncSignedInUser(fbUser, referralCode)
+                syncRes.onSuccess {
+                    auxState.value = auxState.value.copy(
+                        isAuthBusy = false,
+                        isSessionUnlocked = true,
+                        errorMessage = null,
+                        feedbackMessage = null
+                    )
+                }.onFailure { err ->
+                    auxState.value = auxState.value.copy(
+                        isAuthBusy = false,
+                        errorMessage = err.localizedMessage ?: "Failed to sync user profile"
+                    )
+                }
             }.onFailure { err ->
                 auxState.value = auxState.value.copy(
-                    errorMessage = err.message ?: "Login failed"
+                    isAuthBusy = false,
+                    errorMessage = err.localizedMessage ?: "Google Sign-In failed"
                 )
             }
         }
@@ -197,12 +259,12 @@ class JioPanalViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun logout() {
-        val currentEmail = uiState.value.user?.email ?: uiState.value.preferences.loggedInEmail
+    fun logout(context: Context) {
         viewModelScope.launch {
-            repository.logout(currentEmail)
+            repository.logout(context)
             auxState.value = auxState.value.copy(
                 splashDone = true,
+                isAuthBusy = false,
                 isSessionUnlocked = false,
                 isAdminUnlocked = false,
                 isPanelRunning = false,
@@ -258,15 +320,21 @@ class JioPanalViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun updateProfile(fullName: String, phone: String, city: String, businessName: String) {
-        val email = uiState.value.user?.email ?: return
+        val uid = uiState.value.user?.userId ?: return
         viewModelScope.launch {
-            repository.updateProfile(email, fullName, phone, city, businessName)
-            auxState.value = auxState.value.copy(feedbackMessage = "Personal details saved offline & synced")
+            try {
+                repository.updateProfile(uid, fullName, phone, city, businessName)
+                auxState.value = auxState.value.copy(feedbackMessage = "Personal details synced to cloud")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                auxState.value = auxState.value.copy(errorMessage = e.localizedMessage ?: "Update failed")
+            }
         }
     }
 
     fun submitActivationOrDeposit(amount: Double, utr: String, paymentMethod: String, isActivation: Boolean) {
-        val email = uiState.value.user?.email ?: return
+        val user = uiState.value.user ?: return
         val cleanUtr = utr.trim()
         if (cleanUtr.length < 6) {
             auxState.value = auxState.value.copy(errorMessage = "Enter a valid UTR / Reference number (min 6 characters)")
@@ -277,15 +345,21 @@ class JioPanalViewModel(application: Application) : AndroidViewModel(application
             return
         }
         viewModelScope.launch {
-            repository.submitActivationOrDeposit(email, amount, cleanUtr, paymentMethod, isActivation)
-            auxState.value = auxState.value.copy(
-                errorMessage = null,
-                feedbackMessage = if (isActivation) {
-                    "₹5,000 activation submitted! Pending Admin approval."
-                } else {
-                    "Deposit submitted for Admin approval."
-                }
-            )
+            try {
+                repository.submitActivationOrDeposit(user, amount, cleanUtr, paymentMethod, isActivation)
+                auxState.value = auxState.value.copy(
+                    errorMessage = null,
+                    feedbackMessage = if (isActivation) {
+                        "₹5,000 activation sent to Admin! Pending approval."
+                    } else {
+                        "Deposit sent to Admin for approval."
+                    }
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                auxState.value = auxState.value.copy(errorMessage = e.localizedMessage ?: "Failed to submit deposit")
+            }
         }
     }
 
@@ -298,7 +372,7 @@ class JioPanalViewModel(application: Application) : AndroidViewModel(application
         ifscCode: String,
         holderName: String
     ) {
-        val email = uiState.value.user?.email ?: return
+        val user = uiState.value.user ?: return
         if (methodType == "UPI" && !upiId.contains("@")) {
             auxState.value = auxState.value.copy(errorMessage = "Enter a valid UPI ID (e.g. name@okicici)")
             return
@@ -308,24 +382,46 @@ class JioPanalViewModel(application: Application) : AndroidViewModel(application
             return
         }
         viewModelScope.launch {
-            repository.addPayoutMethod(email, methodType, label.ifBlank { methodType }, upiId, bankName, accountNumber, ifscCode, holderName)
-            auxState.value = auxState.value.copy(feedbackMessage = "Payout account added")
+            try {
+                repository.addPayoutMethod(user, methodType, label.ifBlank { methodType }, upiId, bankName, accountNumber, ifscCode, holderName)
+                auxState.value = auxState.value.copy(feedbackMessage = "Payout account added")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                auxState.value = auxState.value.copy(errorMessage = e.localizedMessage ?: "Failed to save payout account")
+            }
         }
     }
 
-    fun setDefaultPayoutMethod(id: Long) {
-        val email = uiState.value.user?.email ?: return
-        viewModelScope.launch { repository.setDefaultPayoutMethod(email, id) }
+    fun setDefaultPayoutMethod(id: String) {
+        val uid = uiState.value.user?.userId ?: return
+        viewModelScope.launch {
+            try {
+                repository.setDefaultPayoutMethod(uid, id)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                auxState.value = auxState.value.copy(errorMessage = e.localizedMessage ?: "Failed to update default account")
+            }
+        }
     }
 
-    fun deletePayoutMethod(id: Long) {
-        viewModelScope.launch { repository.deletePayoutMethod(id) }
+    fun deletePayoutMethod(id: String) {
+        viewModelScope.launch {
+            try {
+                repository.deletePayoutMethod(id)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                auxState.value = auxState.value.copy(errorMessage = e.localizedMessage ?: "Failed to delete payout account")
+            }
+        }
     }
 
     fun requestUserWithdrawal(amount: Double, destinationLabel: String) {
-        val email = uiState.value.user?.email ?: return
+        val user = uiState.value.user ?: return
         viewModelScope.launch {
-            val result = repository.requestUserWithdrawal(email, amount, destinationLabel)
+            val result = repository.requestUserWithdrawal(user, amount, destinationLabel)
             result.onSuccess {
                 auxState.value = auxState.value.copy(feedbackMessage = "Withdrawal request sent to Admin! Pending approval.")
             }.onFailure { err ->
@@ -335,27 +431,44 @@ class JioPanalViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun addReferral(friendName: String, friendEmail: String) {
-        val email = uiState.value.user?.email ?: return
+        val user = uiState.value.user ?: return
         if (friendName.isBlank() || !friendEmail.contains("@")) {
             auxState.value = auxState.value.copy(errorMessage = "Enter friend's name and valid email")
             return
         }
         viewModelScope.launch {
-            repository.addReferral(email, friendName, friendEmail)
-            auxState.value = auxState.value.copy(feedbackMessage = "Referral recorded! 15% bonus activates on deposit.")
+            try {
+                repository.addReferral(user, friendName, friendEmail)
+                auxState.value = auxState.value.copy(feedbackMessage = "Referral recorded! 15% bonus activates on deposit.")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                auxState.value = auxState.value.copy(errorMessage = e.localizedMessage ?: "Failed to log referral")
+            }
         }
     }
 
     fun sendSupportMessage(text: String) {
-        val email = uiState.value.user?.email ?: return
+        val user = uiState.value.user ?: return
         viewModelScope.launch {
-            repository.sendSupportMessage(email, text)
+            try {
+                repository.sendSupportMessage(user, text)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                auxState.value = auxState.value.copy(errorMessage = e.localizedMessage ?: "Failed to send support message")
+            }
         }
     }
 
     fun markAlertsRead() {
-        val email = uiState.value.user?.email ?: return
-        viewModelScope.launch { repository.markAlertsRead(email) }
+        val uid = uiState.value.user?.userId ?: return
+        viewModelScope.launch {
+            try {
+                repository.markAlertsRead(uid)
+            } catch (_: Exception) {
+            }
+        }
     }
 
     // Admin Controls
@@ -391,29 +504,49 @@ class JioPanalViewModel(application: Application) : AndroidViewModel(application
             return
         }
         viewModelScope.launch {
-            repository.updateAdminPasskey(newKey)
-            auxState.value = auxState.value.copy(feedbackMessage = "Admin Passkey updated")
+            try {
+                repository.updateAdminPasskey(newKey)
+                auxState.value = auxState.value.copy(feedbackMessage = "Admin Passkey updated")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                auxState.value = auxState.value.copy(errorMessage = e.localizedMessage ?: "Passkey update failed")
+            }
         }
     }
 
-    fun approvePendingTx(txId: Long) {
+    fun approvePendingTx(txId: String) {
         viewModelScope.launch {
-            repository.approveTransaction(txId)
-            auxState.value = auxState.value.copy(feedbackMessage = "Request approved and ledger updated!")
+            val res = repository.approveTransaction(txId)
+            res.onSuccess {
+                auxState.value = auxState.value.copy(feedbackMessage = "Request approved and synced across devices!")
+            }.onFailure { err ->
+                auxState.value = auxState.value.copy(errorMessage = err.localizedMessage ?: "Approval failed")
+            }
         }
     }
 
-    fun rejectPendingTx(txId: Long) {
+    fun rejectPendingTx(txId: String) {
         viewModelScope.launch {
-            repository.rejectTransaction(txId)
-            auxState.value = auxState.value.copy(feedbackMessage = "Request declined.")
+            val res = repository.rejectTransaction(txId)
+            res.onSuccess {
+                auxState.value = auxState.value.copy(feedbackMessage = "Request declined.")
+            }.onFailure { err ->
+                auxState.value = auxState.value.copy(errorMessage = err.localizedMessage ?: "Decline failed")
+            }
         }
     }
 
-    fun setUserStatusByAdmin(email: String, status: String) {
+    fun setUserStatusByAdmin(userId: String, status: String) {
         viewModelScope.launch {
-            repository.setUserStatusByAdmin(email, status)
-            auxState.value = auxState.value.copy(feedbackMessage = "Updated $email to $status")
+            try {
+                repository.setUserStatusByAdmin(userId, status)
+                auxState.value = auxState.value.copy(feedbackMessage = "User status updated to $status")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                auxState.value = auxState.value.copy(errorMessage = e.localizedMessage ?: "Status update failed")
+            }
         }
     }
 
@@ -423,7 +556,7 @@ class JioPanalViewModel(application: Application) : AndroidViewModel(application
             return
         }
         viewModelScope.launch {
-            val result = repository.withdrawAdminCommission(amount, destination, uiState.value.user?.email)
+            val result = repository.withdrawAdminCommission(amount, destination)
             result.onSuccess {
                 auxState.value = auxState.value.copy(feedbackMessage = "Admin commission withdrawal settled!")
             }.onFailure { err ->
@@ -450,7 +583,7 @@ class JioPanalViewModel(application: Application) : AndroidViewModel(application
             result.onSuccess {
                 auxState.value = auxState.value.copy(
                     errorMessage = null,
-                    feedbackMessage = "Credited ${com.example.util.Formatters.formatInr(amount)} to ${targetEmail.trim().lowercase()}"
+                    feedbackMessage = "Credited ${Formatters.formatInr(amount)} to ${targetEmail.trim().lowercase()}"
                 )
             }.onFailure { err ->
                 auxState.value = auxState.value.copy(
@@ -460,10 +593,16 @@ class JioPanalViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun sendAdminSupportReply(userEmail: String, message: String) {
+    fun sendAdminSupportReply(userId: String, userEmail: String, message: String) {
         viewModelScope.launch {
-            repository.sendAdminReplyToUser(userEmail, message)
-            auxState.value = auxState.value.copy(feedbackMessage = "Reply sent to $userEmail")
+            try {
+                repository.sendAdminReplyToUser(userId, userEmail, message)
+                auxState.value = auxState.value.copy(feedbackMessage = "Reply sent to $userEmail")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                auxState.value = auxState.value.copy(errorMessage = e.localizedMessage ?: "Reply failed")
+            }
         }
     }
 
@@ -481,14 +620,15 @@ class JioPanalViewModel(application: Application) : AndroidViewModel(application
         val payoutMethods: List<PayoutMethodEntity> = emptyList(),
         val alerts: List<NotificationAlertEntity> = emptyList(),
         val supportMessages: List<SupportMessageEntity> = emptyList(),
-        val referrals: List<ReferralEntity> = emptyList()
+        val referrals: List<ReferralEntity> = emptyList(),
+        val liveTicker: List<LiveTickerEntity> = emptyList(),
+        val publicConfig: AdminVaultEntity = AdminVaultEntity()
     )
 
     private data class AdminBundle(
         val vault: AdminVaultEntity = AdminVaultEntity(),
         val pendingApprovals: List<TransactionEntity> = emptyList(),
         val allUsers: List<UserAccountEntity> = emptyList(),
-        val allTransactions: List<TransactionEntity> = emptyList(),
-        val liveTicker: List<LiveTickerEntity> = emptyList()
+        val allTransactions: List<TransactionEntity> = emptyList()
     )
 }

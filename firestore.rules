@@ -1,0 +1,323 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function isAdmin() {
+      return isSignedIn() &&
+             request.auth.token.email_verified == true &&
+             request.auth.token.email == 'vishalsaini60223@gmail.com';
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidString(val, minLen, maxLen) {
+      return val is string && val.size() >= minLen && val.size() <= maxLen;
+    }
+
+    function isNonNegNumber(val, maxVal) {
+      return val is number && val >= 0 && val <= maxVal;
+    }
+
+    function isPosNumber(val, maxVal) {
+      return val is number && val > 0 && val <= maxVal;
+    }
+
+    function isValidUserShape(userId) {
+      let d = incoming();
+      return d.keys().hasOnly([
+          'userId', 'email', 'fullName', 'phone', 'city', 'businessName',
+          'status', 'walletBalance', 'commissionEarned', 'totalDeposited',
+          'referralCode', 'referredBy', 'loginCount', 'isLoggedIn',
+          'lastLoginAt', 'createdAt', 'updatedAt'
+        ]) &&
+        d.userId == userId &&
+        isValidString(d.email, 3, 150) &&
+        isValidString(d.fullName, 0, 100) &&
+        isValidString(d.phone, 0, 25) &&
+        isValidString(d.city, 0, 80) &&
+        isValidString(d.businessName, 0, 100) &&
+        d.status in ['INACTIVE', 'PENDING', 'ACTIVE', 'SUSPENDED'] &&
+        isNonNegNumber(d.walletBalance, 100000000) &&
+        isNonNegNumber(d.commissionEarned, 100000000) &&
+        isNonNegNumber(d.totalDeposited, 100000000) &&
+        isValidString(d.referralCode, 0, 32) &&
+        isValidString(d.referredBy, 0, 32) &&
+        d.loginCount is int && d.loginCount >= 0 && d.loginCount <= 1000000 &&
+        d.isLoggedIn is bool &&
+        d.lastLoginAt is timestamp && d.lastLoginAt <= request.time &&
+        d.createdAt is timestamp && d.createdAt <= request.time &&
+        d.updatedAt is timestamp && d.updatedAt <= request.time;
+    }
+
+    function isValidNewUser(userId) {
+      let d = incoming();
+      return isValidUserShape(userId) &&
+        request.auth.token.email != null &&
+        d.email.lower() == request.auth.token.email.lower() &&
+        d.status == 'INACTIVE' &&
+        d.walletBalance == 0 &&
+        d.commissionEarned == 0 &&
+        d.totalDeposited == 0 &&
+        d.loginCount == 1;
+    }
+
+    function isSafeOwnerUserUpdate(userId) {
+      let d = incoming();
+      let e = existing();
+      let allowedKeys = [
+        'fullName', 'phone', 'city', 'businessName',
+        'referralCode', 'referredBy', 'loginCount', 'isLoggedIn',
+        'lastLoginAt', 'updatedAt', 'status'
+      ];
+      let statusTransitionOk = (d.status == e.status) ||
+        (e.status == 'INACTIVE' && d.status == 'PENDING');
+      return isValidUserShape(userId) &&
+        d.diff(e).affectedKeys().hasOnly(allowedKeys) &&
+        d.userId == e.userId &&
+        d.email == e.email &&
+        d.walletBalance == e.walletBalance &&
+        d.commissionEarned == e.commissionEarned &&
+        d.totalDeposited == e.totalDeposited &&
+        d.createdAt == e.createdAt &&
+        d.loginCount >= e.loginCount &&
+        d.loginCount <= e.loginCount + 1 &&
+        statusTransitionOk;
+    }
+
+    function isValidTransaction() {
+      let d = incoming();
+      return d.keys().hasOnly([
+          'userId', 'userEmail', 'type', 'amount', 'commissionAmount',
+          'utrOrRef', 'title', 'subtitle', 'status', 'paymentMethod',
+          'createdAt', 'updatedAt'
+        ]) &&
+        isValidString(d.userId, 1, 128) &&
+        isValidString(d.userEmail, 3, 150) &&
+        d.type in [
+          'ACTIVATION', 'DEPOSIT', 'COMMISSION_CREDIT',
+          'WITHDRAWAL', 'REFERRAL_BONUS', 'ADMIN_WITHDRAWAL'
+        ] &&
+        isPosNumber(d.amount, 10000000) &&
+        isNonNegNumber(d.commissionAmount, 10000000) &&
+        d.commissionAmount <= d.amount &&
+        isValidString(d.utrOrRef, 2, 64) &&
+        isValidString(d.title, 1, 120) &&
+        isValidString(d.subtitle, 0, 240) &&
+        d.status in ['PENDING', 'SUCCESS', 'REJECTED'] &&
+        isValidString(d.paymentMethod, 1, 40) &&
+        d.createdAt is timestamp && d.createdAt <= request.time &&
+        d.updatedAt is timestamp && d.updatedAt <= request.time;
+    }
+
+    function isValidPayoutMethod() {
+      let d = incoming();
+      return d.keys().hasOnly([
+          'userId', 'userEmail', 'methodType', 'label', 'upiId',
+          'bankName', 'accountNumber', 'ifscCode', 'holderName',
+          'isDefault', 'createdAt', 'updatedAt'
+        ]) &&
+        isValidString(d.userId, 1, 128) &&
+        isValidString(d.userEmail, 3, 150) &&
+        d.methodType in ['UPI', 'BANK'] &&
+        isValidString(d.label, 1, 60) &&
+        isValidString(d.upiId, 0, 100) &&
+        isValidString(d.bankName, 0, 100) &&
+        isValidString(d.accountNumber, 0, 40) &&
+        isValidString(d.ifscCode, 0, 20) &&
+        isValidString(d.holderName, 0, 100) &&
+        d.isDefault is bool &&
+        d.createdAt is timestamp && d.createdAt <= request.time &&
+        d.updatedAt is timestamp && d.updatedAt <= request.time;
+    }
+
+    function isValidAlert() {
+      let d = incoming();
+      return d.keys().hasOnly([
+          'userId', 'userEmail', 'title', 'smsBody',
+          'amount', 'alertType', 'isRead', 'createdAt'
+        ]) &&
+        isValidString(d.userId, 1, 128) &&
+        isValidString(d.userEmail, 3, 150) &&
+        isValidString(d.title, 1, 120) &&
+        isValidString(d.smsBody, 1, 500) &&
+        isNonNegNumber(d.amount, 100000000) &&
+        d.alertType in ['CREDIT', 'DEPOSIT', 'SECURITY', 'SYSTEM'] &&
+        d.isRead is bool &&
+        d.createdAt is timestamp && d.createdAt <= request.time;
+    }
+
+    function isValidSupportMessage() {
+      let d = incoming();
+      return d.keys().hasOnly(['userId', 'userEmail', 'senderRole', 'message', 'createdAt']) &&
+        isValidString(d.userId, 1, 128) &&
+        isValidString(d.userEmail, 3, 150) &&
+        d.senderRole in ['USER', 'SUPPORT'] &&
+        isValidString(d.message, 1, 1000) &&
+        d.createdAt is timestamp && d.createdAt <= request.time;
+    }
+
+    function isValidReferral() {
+      let d = incoming();
+      return d.keys().hasOnly([
+          'referrerId', 'referrerEmail', 'friendName', 'friendEmail',
+          'status', 'commissionEarned', 'createdAt'
+        ]) &&
+        isValidString(d.referrerId, 1, 128) &&
+        isValidString(d.referrerEmail, 3, 150) &&
+        isValidString(d.friendName, 1, 100) &&
+        isValidString(d.friendEmail, 3, 150) &&
+        d.status in ['PENDING', 'ACTIVE'] &&
+        isNonNegNumber(d.commissionEarned, 1000000) &&
+        d.createdAt is timestamp && d.createdAt <= request.time;
+    }
+
+    function isValidLiveTicker() {
+      let d = incoming();
+      return d.keys().hasOnly(['message', 'highlightAmount', 'isCredit', 'createdAt']) &&
+        isValidString(d.message, 1, 160) &&
+        isValidString(d.highlightAmount, 1, 60) &&
+        d.isCredit is bool &&
+        d.createdAt is timestamp && d.createdAt <= request.time;
+    }
+
+    function isValidPublicConfig() {
+      let d = incoming();
+      return d.keys().hasOnly([
+          'commissionRatePercent', 'activationAmount',
+          'merchantUpiId', 'telegramHandle', 'updatedAt'
+        ]) &&
+        d.commissionRatePercent is number && d.commissionRatePercent >= 0 && d.commissionRatePercent <= 100 &&
+        isPosNumber(d.activationAmount, 1000000) &&
+        isValidString(d.merchantUpiId, 3, 100) &&
+        isValidString(d.telegramHandle, 2, 60) &&
+        d.updatedAt is timestamp && d.updatedAt <= request.time;
+    }
+
+    function isValidAdminVault() {
+      let d = incoming();
+      return d.keys().hasOnly([
+          'adminPasskey', 'commissionPoolBalance', 'commissionRatePercent',
+          'activationAmount', 'merchantUpiId', 'telegramHandle', 'updatedAt'
+        ]) &&
+        isValidString(d.adminPasskey, 6, 64) &&
+        isNonNegNumber(d.commissionPoolBalance, 100000000) &&
+        d.commissionRatePercent is number && d.commissionRatePercent >= 0 && d.commissionRatePercent <= 100 &&
+        isPosNumber(d.activationAmount, 1000000) &&
+        isValidString(d.merchantUpiId, 3, 100) &&
+        isValidString(d.telegramHandle, 2, 60) &&
+        d.updatedAt is timestamp && d.updatedAt <= request.time;
+    }
+
+    match /users/{userId} {
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if (isOwner(userId) && isValidNewUser(userId)) ||
+                    (isAdmin() && isValidUserShape(userId));
+      allow update: if (isOwner(userId) && isSafeOwnerUserUpdate(userId)) ||
+                    (isAdmin() && isValidUserShape(userId) &&
+                     incoming().userId == existing().userId &&
+                     incoming().createdAt == existing().createdAt);
+      allow delete: if false;
+    }
+
+    match /transactions/{txId} {
+      allow get: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow list: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if (isAdmin() && isValidTransaction()) ||
+                    (isSignedIn() &&
+                     incoming().userId == request.auth.uid &&
+                     incoming().status == 'PENDING' &&
+                     incoming().type in ['ACTIVATION', 'DEPOSIT', 'WITHDRAWAL'] &&
+                     isValidTransaction());
+      allow update: if isAdmin() &&
+                    isValidTransaction() &&
+                    incoming().userId == existing().userId &&
+                    incoming().createdAt == existing().createdAt;
+      allow delete: if false;
+    }
+
+    match /payout_methods/{methodId} {
+      allow get: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow list: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid && isValidPayoutMethod();
+      allow update: if isSignedIn() &&
+                    resource.data.userId == request.auth.uid &&
+                    incoming().userId == existing().userId &&
+                    incoming().createdAt == existing().createdAt &&
+                    isValidPayoutMethod();
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    match /notification_alerts/{alertId} {
+      allow get: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow list: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if (isAdmin() || (isSignedIn() && incoming().userId == request.auth.uid)) && isValidAlert();
+      allow update: if isSignedIn() &&
+                    resource.data.userId == request.auth.uid &&
+                    incoming().diff(existing()).affectedKeys().hasOnly(['isRead']) &&
+                    incoming().isRead is bool;
+      allow delete: if false;
+    }
+
+    match /support_messages/{msgId} {
+      allow get: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow list: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if (isAdmin() || (isSignedIn() && incoming().userId == request.auth.uid)) &&
+                    isValidSupportMessage();
+      allow update, delete: if false;
+    }
+
+    match /referrals/{refId} {
+      allow get: if isAdmin() || (isSignedIn() && resource.data.referrerId == request.auth.uid);
+      allow list: if isAdmin() || (isSignedIn() && resource.data.referrerId == request.auth.uid);
+      allow create: if isSignedIn() &&
+                    incoming().referrerId == request.auth.uid &&
+                    incoming().status == 'PENDING' &&
+                    incoming().commissionEarned == 0 &&
+                    isValidReferral();
+      allow update: if isAdmin() &&
+                    isValidReferral() &&
+                    incoming().referrerId == existing().referrerId &&
+                    incoming().createdAt == existing().createdAt;
+      allow delete: if false;
+    }
+
+    match /live_ticker/{tickerId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() && isValidLiveTicker();
+      allow update, delete: if false;
+    }
+
+    match /app_config/{docId} {
+      allow get: if isSignedIn();
+      allow list: if false;
+      allow create, update: if isAdmin() && docId == 'PUBLIC_SETTINGS' && isValidPublicConfig();
+      allow delete: if false;
+    }
+
+    match /admin_config/{docId} {
+      allow get: if isAdmin() && docId == 'ADMIN_SINGLETON';
+      allow list: if false;
+      allow create, update: if isAdmin() && docId == 'ADMIN_SINGLETON' && isValidAdminVault();
+      allow delete: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

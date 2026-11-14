@@ -1,10 +1,9 @@
 <resources>
     <string name="app_name">Jio Panal</string>
     <string name="error_invalid_gmail">Please enter a valid Gmail address.</string>
-    <string name="error_invalid_otp">Invalid 6-digit OTP. Please try again.</string>
     <string name="error_invalid_utr">Please enter a valid 8–16 digit UTR / Reference number.</string>
     <string name="error_insufficient_balance">Insufficient balance for this withdrawal.</string>
     <string name="error_invalid_admin_key">Incorrect Admin Passkey.</string>
     <string name="notification_channel_name">Jio Panal Live Alerts</string>
-    <string name="notification_channel_desc">Real-time deposit, 15% commission credit, and OTP security alerts.</string>
+    <string name="notification_channel_desc">Real-time deposit, 15% commission credit, and withdrawal approval alerts.</string>
 </resources>

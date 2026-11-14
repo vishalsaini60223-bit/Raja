@@ -73,8 +73,8 @@ fun TransactionsAndAccountsScreen(
         ifscCode: String,
         holderName: String
     ) -> Unit,
-    onSetDefaultPayout: (Long) -> Unit,
-    onDeletePayout: (Long) -> Unit,
+    onSetDefaultPayout: (String) -> Unit,
+    onDeletePayout: (String) -> Unit,
     onWithdrawWallet: (Double, String) -> Unit
 ) {
     var selectedTab by rememberSaveable(initialTab) { mutableIntStateOf(initialTab) }
@@ -125,7 +125,7 @@ fun TransactionsAndAccountsScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Offline Transaction Ledger",
+                            text = "Cloud Transaction Ledger",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
@@ -189,7 +189,7 @@ fun TransactionsAndAccountsScreen(
                     item {
                         LuxuryGlassCard(modifier = Modifier.fillMaxWidth()) {
                             Text(
-                                text = "No matching offline transactions found.",
+                                text = "No matching cloud transactions found.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -221,7 +221,7 @@ fun TransactionsAndAccountsScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Text(
-                                    text = Formatters.formatInr(state.user?.walletBalance ?: 0.0),
+                                    text = Formatters.formatInr(state.availableBalance),
                                     style = MaterialTheme.typography.headlineMedium,
                                     color = MaterialTheme.colorScheme.primary,
                                     fontWeight = FontWeight.Bold
@@ -229,7 +229,7 @@ fun TransactionsAndAccountsScreen(
                             }
                             Button(
                                 onClick = { showWithdrawDialog = true },
-                                enabled = (state.user?.walletBalance ?: 0.0) > 0.0 && state.payoutMethods.isNotEmpty(),
+                                enabled = state.availableBalance > 0.0 && state.payoutMethods.isNotEmpty(),
                                 modifier = Modifier.testTag("user_withdraw_button")
                             ) {
                                 Icon(Icons.Default.AccountBalanceWallet, contentDescription = null)
@@ -336,7 +336,7 @@ fun TransactionsAndAccountsScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        text = "Available: ${Formatters.formatInr(state.user?.walletBalance ?: 0.0)}",
+                        text = "Available: ${Formatters.formatInr(state.availableBalance)}",
                         style = MaterialTheme.typography.labelLarge,
                         color = EmeraldCredit
                     )

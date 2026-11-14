@@ -30,19 +30,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Key
-import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.VerifiedUser
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -70,7 +67,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
@@ -79,7 +75,6 @@ import com.example.ui.components.CommissionRibbon
 import com.example.ui.components.LuxuryGlassCard
 import com.example.ui.i18n.AppLanguage
 import com.example.ui.i18n.AppStrings
-import com.example.ui.theme.EmeraldCredit
 import com.example.ui.theme.ObsidianBg
 import com.example.ui.theme.RoyalGold
 import com.example.ui.theme.RoyalGoldBright
@@ -178,17 +173,20 @@ fun LuxurySplashScreen(onFinished: () -> Unit) {
 }
 
 @Composable
-fun GmailPasswordAuthScreen(
+fun GoogleSignInAuthScreen(
     strings: AppStrings,
     selectedLanguage: AppLanguage,
+    isBusy: Boolean,
     errorMessage: String?,
     onLanguageSelected: (AppLanguage) -> Unit,
-    onLoginWithPassword: (email: String, password: String, referralCode: String) -> Unit
+    onAttemptSilentSignIn: () -> Unit,
+    onContinueWithGoogle: (referralCode: String) -> Unit
 ) {
-    var emailInput by rememberSaveable { mutableStateOf("") }
-    var passwordInput by rememberSaveable { mutableStateOf("") }
-    var passwordVisible by rememberSaveable { mutableStateOf(false) }
     var referralInput by rememberSaveable { mutableStateOf("") }
+
+    LaunchedEffect(Unit) {
+        onAttemptSilentSignIn()
+    }
 
     Box(
         modifier = Modifier
@@ -228,7 +226,6 @@ fun GmailPasswordAuthScreen(
                 .align(Alignment.TopCenter),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Language Switcher
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,
@@ -243,18 +240,20 @@ fun GmailPasswordAuthScreen(
                             selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
                             selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
                         ),
-                        modifier = Modifier.padding(start = 6.dp)
+                        modifier = Modifier
+                            .padding(start = 6.dp)
+                            .testTag("lang_chip_${lang.code}")
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
             Surface(
                 shape = RoundedCornerShape(20.dp),
                 color = Color(0xFF0A0D14),
                 border = BorderStroke(1.5.dp, RoyalGold),
-                modifier = Modifier.size(64.dp)
+                modifier = Modifier.size(68.dp)
             ) {
                 Image(
                     painter = painterResource(id = R.drawable.ic_jio_panal_fg),
@@ -263,7 +262,7 @@ fun GmailPasswordAuthScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(10.dp))
             Text(
                 text = strings.appTitle,
                 style = MaterialTheme.typography.headlineMedium,
@@ -277,7 +276,7 @@ fun GmailPasswordAuthScreen(
                 textAlign = TextAlign.Center
             )
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(18.dp))
 
             LuxuryGlassCard(highlightGold = true, modifier = Modifier.fillMaxWidth()) {
                 Row(
@@ -290,57 +289,18 @@ fun GmailPasswordAuthScreen(
                         tint = MaterialTheme.colorScheme.primary
                     )
                     Text(
-                        text = "Gmail & Password Login",
+                        text = "Verified Gmail Cloud Login",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold
                     )
                 }
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Sign in with your Gmail ID and password (min 6 characters). New Gmail accounts are created automatically.",
+                    text = "Sign in with your verified Google account (No OTP required). Your wallet, deposits, and withdrawal requests sync live across devices.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(modifier = Modifier.height(16.dp))
-
-                OutlinedTextField(
-                    value = emailInput,
-                    onValueChange = { emailInput = it },
-                    label = { Text(strings.gmailLabel) },
-                    placeholder = { Text(strings.gmailPlaceholder) },
-                    leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("gmail_input")
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                OutlinedTextField(
-                    value = passwordInput,
-                    onValueChange = { passwordInput = it },
-                    label = { Text("Password") },
-                    placeholder = { Text("Min 6 characters") },
-                    leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
-                    trailingIcon = {
-                        IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                            Icon(
-                                imageVector = if (passwordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                contentDescription = if (passwordVisible) "Hide password" else "Show password"
-                            )
-                        }
-                    },
-                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                    singleLine = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("password_input")
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
 
                 OutlinedTextField(
                     value = referralInput,
@@ -349,7 +309,10 @@ fun GmailPasswordAuthScreen(
                     placeholder = { Text("e.g. JP-VISHAL-15") },
                     leadingIcon = { Icon(Icons.Default.Key, contentDescription = null) },
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                    enabled = !isBusy,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("referral_code_input")
                 )
 
                 if (!errorMessage.isNullOrBlank()) {
@@ -364,20 +327,33 @@ fun GmailPasswordAuthScreen(
                 Spacer(modifier = Modifier.height(18.dp))
 
                 Button(
-                    onClick = { onLoginWithPassword(emailInput, passwordInput, referralInput) },
+                    onClick = { onContinueWithGoogle(referralInput) },
+                    enabled = !isBusy,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(52.dp)
-                        .testTag("login_button"),
+                        .height(54.dp)
+                        .testTag("sign_in_google_button"),
                     shape = RoundedCornerShape(14.dp)
                 ) {
-                    Text("Login / Create Account", fontWeight = FontWeight.Bold)
+                    if (isBusy) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
+                        Spacer(modifier = Modifier.size(10.dp))
+                        Text("Connecting to Google...", fontWeight = FontWeight.Bold)
+                    } else {
+                        Icon(Icons.Default.AccountCircle, contentDescription = null)
+                        Spacer(modifier = Modifier.size(8.dp))
+                        Text("Continue with Google", fontWeight = FontWeight.Bold)
+                    }
                 }
             }
 
             Spacer(modifier = Modifier.height(18.dp))
             Text(
-                text = "Protected by Biometric Security & Offline Vault Encryption",
+                text = "Protected by Google Identity, Cloud Firestore Rules & Biometric Lock",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
@@ -536,7 +512,7 @@ fun BiometricLockScreen(
 
                 Spacer(modifier = Modifier.height(10.dp))
                 TextButton(onClick = onSignOut) {
-                    Text("Switch Gmail Account")
+                    Text("Switch Google Account")
                 }
             }
         }

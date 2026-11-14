@@ -73,7 +73,7 @@ import com.example.ui.screens.ActivateAndPayScreen
 import com.example.ui.screens.AdminPanelScreen
 import com.example.ui.screens.BiometricLockScreen
 import com.example.ui.screens.DashboardScreen
-import com.example.ui.screens.GmailPasswordAuthScreen
+import com.example.ui.screens.GoogleSignInAuthScreen
 import com.example.ui.screens.LuxurySplashScreen
 import com.example.ui.screens.ProfileScreen
 import com.example.ui.screens.ReferralAndSupportScreen
@@ -148,14 +148,14 @@ fun JioPanalApp(viewModel: JioPanalViewModel = viewModel()) {
                     contentWindowInsets = WindowInsets.safeDrawing
                 ) { innerPadding ->
                     Box(modifier = Modifier.padding(innerPadding)) {
-                        GmailPasswordAuthScreen(
+                        GoogleSignInAuthScreen(
                             strings = strings,
                             selectedLanguage = state.language,
+                            isBusy = state.isAuthBusy,
                             errorMessage = state.errorMessage,
                             onLanguageSelected = { viewModel.setLanguage(it) },
-                            onLoginWithPassword = { email, pass, ref ->
-                                viewModel.loginWithPassword(email, pass, ref)
-                            }
+                            onAttemptSilentSignIn = { viewModel.trySilentGoogleSignIn(context) },
+                            onContinueWithGoogle = { ref -> viewModel.signInWithGoogle(context, ref) }
                         )
                     }
                 }
@@ -163,12 +163,12 @@ fun JioPanalApp(viewModel: JioPanalViewModel = viewModel()) {
 
             AuthStage.BIOMETRIC_LOCK -> {
                 BiometricLockScreen(
-                    email = state.preferences.loggedInEmail ?: "",
+                    email = state.authEmail ?: "",
                     strings = strings,
                     errorMessage = state.errorMessage,
                     onBiometricUnlocked = { viewModel.unlockWithBiometricSuccess() },
                     onPinUnlock = { pin -> viewModel.unlockWithPin(pin) },
-                    onSignOut = { viewModel.logout() }
+                    onSignOut = { viewModel.logout(context) }
                 )
             }
 
@@ -354,7 +354,7 @@ fun JioPanalApp(viewModel: JioPanalViewModel = viewModel()) {
                                             onOpenAdminVault = {
                                                 navController.navigate(AdminRoute) { launchSingleTop = true }
                                             },
-                                            onLogout = { viewModel.logout() }
+                                            onLogout = { viewModel.logout(context) }
                                         )
                                     }
 
@@ -369,13 +369,15 @@ fun JioPanalApp(viewModel: JioPanalViewModel = viewModel()) {
                                             },
                                             onApproveTx = { viewModel.approvePendingTx(it) },
                                             onRejectTx = { viewModel.rejectPendingTx(it) },
-                                            onSetUserStatus = { email, status -> viewModel.setUserStatusByAdmin(email, status) },
+                                            onSetUserStatus = { userId, status -> viewModel.setUserStatusByAdmin(userId, status) },
                                             onWithdrawAdminPool = { amt, dest -> viewModel.withdrawAdminCommission(amt, dest) },
                                             onCreditUser = { email, amt, includeComm, deductPool, note ->
                                                 viewModel.creditUserByAdmin(email, amt, includeComm, deductPool, note)
                                             },
                                             onUpdateAdminPasskey = { viewModel.updateAdminPasskey(it) },
-                                            onSendAdminReply = { email, msg -> viewModel.sendAdminSupportReply(email, msg) }
+                                            onSendAdminReply = { userId, email, msg ->
+                                                viewModel.sendAdminSupportReply(userId, email, msg)
+                                            }
                                         )
                                     }
                                 }

@@ -1,0 +1,15 @@
+{
+  "firestore": {
+    "database": "ai-studio-android-jiopanal-cb12b503-7e7b-483a-9507-067a970a1525",
+    "rules": "firestore.rules"
+  },
+  "emulators": {
+    "auth": {
+      "port": 9099
+    },
+    "firestore": {
+      "port": 8085
+    },
+    "singleProjectMode": false
+  }
+}

@@ -630,7 +630,7 @@ fun DashboardScreen(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "Offline Ledger & Instant Withdraw",
+                            text = "Live Cloud Ledger & Withdrawals",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

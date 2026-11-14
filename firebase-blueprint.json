@@ -1,0 +1,191 @@
+{
+  "entities": {
+    "UserAccount": {
+      "title": "UserAccount",
+      "description": "Authenticated Jio Panal partner account synced across devices.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID (matches document ID)." },
+        "email": { "type": "string", "description": "Verified Gmail address (lowercase)." },
+        "fullName": { "type": "string", "description": "User display name." },
+        "phone": { "type": "string", "description": "Contact phone number." },
+        "city": { "type": "string", "description": "City / State." },
+        "businessName": { "type": "string", "description": "Partner panel / business name." },
+        "status": { "type": "string", "enum": ["INACTIVE", "PENDING", "ACTIVE", "SUSPENDED"] },
+        "walletBalance": { "type": "number", "description": "Current wallet balance in INR." },
+        "commissionEarned": { "type": "number", "description": "Total 15% commission credited in INR." },
+        "totalDeposited": { "type": "number", "description": "Total approved deposit amount in INR." },
+        "referralCode": { "type": "string", "description": "Partner referral invite code." },
+        "referredBy": { "type": "string", "description": "Referral code used at signup." },
+        "loginCount": { "type": "integer", "description": "Cumulative login count." },
+        "isLoggedIn": { "type": "boolean", "description": "Live session active flag." },
+        "lastLoginAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "email", "status", "walletBalance", "commissionEarned", "totalDeposited", "loginCount", "isLoggedIn", "createdAt", "updatedAt"]
+    },
+    "TransactionRecord": {
+      "title": "TransactionRecord",
+      "description": "Activation, deposit, 15% commission, withdrawal, or admin payout ledger record.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID of the owning partner." },
+        "userEmail": { "type": "string", "description": "Partner Gmail address." },
+        "type": { "type": "string", "enum": ["ACTIVATION", "DEPOSIT", "COMMISSION_CREDIT", "WITHDRAWAL", "REFERRAL_BONUS", "ADMIN_WITHDRAWAL"] },
+        "amount": { "type": "number" },
+        "commissionAmount": { "type": "number" },
+        "utrOrRef": { "type": "string" },
+        "title": { "type": "string" },
+        "subtitle": { "type": "string" },
+        "status": { "type": "string", "enum": ["PENDING", "SUCCESS", "REJECTED"] },
+        "paymentMethod": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "userEmail", "type", "amount", "commissionAmount", "utrOrRef", "title", "status", "paymentMethod", "createdAt", "updatedAt"]
+    },
+    "PayoutMethod": {
+      "title": "PayoutMethod",
+      "description": "Partner UPI or Bank account saved for withdrawal payouts.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "methodType": { "type": "string", "enum": ["UPI", "BANK"] },
+        "label": { "type": "string" },
+        "upiId": { "type": "string" },
+        "bankName": { "type": "string" },
+        "accountNumber": { "type": "string" },
+        "ifscCode": { "type": "string" },
+        "holderName": { "type": "string" },
+        "isDefault": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "userEmail", "methodType", "label", "isDefault", "createdAt", "updatedAt"]
+    },
+    "NotificationAlert": {
+      "title": "NotificationAlert",
+      "description": "Recorded credit, deposit, and security alert for a user.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "title": { "type": "string" },
+        "smsBody": { "type": "string" },
+        "amount": { "type": "number" },
+        "alertType": { "type": "string", "enum": ["CREDIT", "DEPOSIT", "SECURITY", "SYSTEM"] },
+        "isRead": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "userEmail", "title", "smsBody", "amount", "alertType", "isRead", "createdAt"]
+    },
+    "SupportMessage": {
+      "title": "SupportMessage",
+      "description": "24/7 customer & admin support chat message.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "senderRole": { "type": "string", "enum": ["USER", "SUPPORT"] },
+        "message": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "userEmail", "senderRole", "message", "createdAt"]
+    },
+    "ReferralRecord": {
+      "title": "ReferralRecord",
+      "description": "Partner referral invite record.",
+      "type": "object",
+      "properties": {
+        "referrerId": { "type": "string" },
+        "referrerEmail": { "type": "string" },
+        "friendName": { "type": "string" },
+        "friendEmail": { "type": "string" },
+        "status": { "type": "string", "enum": ["PENDING", "ACTIVE"] },
+        "commissionEarned": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["referrerId", "referrerEmail", "friendName", "friendEmail", "status", "commissionEarned", "createdAt"]
+    },
+    "LiveTickerItem": {
+      "title": "LiveTickerItem",
+      "description": "Masked non-PII live deposit/credit ticker event.",
+      "type": "object",
+      "properties": {
+        "message": { "type": "string" },
+        "highlightAmount": { "type": "string" },
+        "isCredit": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["message", "highlightAmount", "isCredit", "createdAt"]
+    },
+    "PublicAppConfig": {
+      "title": "PublicAppConfig",
+      "description": "Public gateway settings (UPI ID, activation amount, commission rate, Telegram handle).",
+      "type": "object",
+      "properties": {
+        "commissionRatePercent": { "type": "number" },
+        "activationAmount": { "type": "number" },
+        "merchantUpiId": { "type": "string" },
+        "telegramHandle": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["commissionRatePercent", "activationAmount", "merchantUpiId", "telegramHandle", "updatedAt"]
+    },
+    "AdminVaultConfig": {
+      "title": "AdminVaultConfig",
+      "description": "Admin-only control vault configuration and ₹2,00,000 commission pool balance.",
+      "type": "object",
+      "properties": {
+        "adminPasskey": { "type": "string" },
+        "commissionPoolBalance": { "type": "number" },
+        "commissionRatePercent": { "type": "number" },
+        "activationAmount": { "type": "number" },
+        "merchantUpiId": { "type": "string" },
+        "telegramHandle": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["adminPasskey", "commissionPoolBalance", "commissionRatePercent", "activationAmount", "merchantUpiId", "telegramHandle", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserAccount" },
+      "description": "User profiles keyed by Firebase Auth UID."
+    },
+    "/transactions/{txId}": {
+      "schema": { "$ref": "#/entities/TransactionRecord" },
+      "description": "Global transaction ledger filtered by userId for regular users and full queue for Admin."
+    },
+    "/payout_methods/{methodId}": {
+      "schema": { "$ref": "#/entities/PayoutMethod" },
+      "description": "User saved UPI / bank payout methods."
+    },
+    "/notification_alerts/{alertId}": {
+      "schema": { "$ref": "#/entities/NotificationAlert" },
+      "description": "Per-user live transaction & security alerts."
+    },
+    "/support_messages/{msgId}": {
+      "schema": { "$ref": "#/entities/SupportMessage" },
+      "description": "24/7 user & admin support chat messages."
+    },
+    "/referrals/{refId}": {
+      "schema": { "$ref": "#/entities/ReferralRecord" },
+      "description": "User referral tracking."
+    },
+    "/live_ticker/{tickerId}": {
+      "schema": { "$ref": "#/entities/LiveTickerItem" },
+      "description": "Non-PII masked scrolling ledger ticker."
+    },
+    "/app_config/{docId}": {
+      "schema": { "$ref": "#/entities/PublicAppConfig" },
+      "description": "Public gateway settings document (PUBLIC_SETTINGS)."
+    },
+    "/admin_config/{docId}": {
+      "schema": { "$ref": "#/entities/AdminVaultConfig" },
+      "description": "Admin-only vault secret passkey & pool balance (ADMIN_SINGLETON)."
+    }
+  }
+}

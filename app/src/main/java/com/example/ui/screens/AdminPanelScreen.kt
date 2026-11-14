@@ -81,13 +81,13 @@ fun AdminPanelScreen(
     strings: AppStrings,
     onVerifyPasskey: (String) -> Unit,
     onLockAndExit: () -> Unit,
-    onApproveTx: (Long) -> Unit,
-    onRejectTx: (Long) -> Unit,
+    onApproveTx: (String) -> Unit,
+    onRejectTx: (String) -> Unit,
     onSetUserStatus: (String, String) -> Unit,
     onWithdrawAdminPool: (Double, String) -> Unit,
     onCreditUser: (targetEmail: String, amount: Double, includeCommission: Boolean, deductFromPool: Boolean, note: String) -> Unit,
     onUpdateAdminPasskey: (String) -> Unit,
-    onSendAdminReply: (String, String) -> Unit
+    onSendAdminReply: (userId: String, userEmail: String, message: String) -> Unit
 ) {
     BackHandler {
         onLockAndExit()
@@ -99,6 +99,7 @@ fun AdminPanelScreen(
     var showCreditUserModal by rememberSaveable { mutableStateOf(false) }
     var creditPrefillEmail by rememberSaveable { mutableStateOf("") }
     var showPasskeyModal by rememberSaveable { mutableStateOf(false) }
+    var replyTargetUserId by rememberSaveable { mutableStateOf<String?>(null) }
     var replyTargetEmail by rememberSaveable { mutableStateOf<String?>(null) }
 
     Scaffold(
@@ -434,13 +435,13 @@ fun AdminPanelScreen(
                             item {
                                 LuxuryGlassCard(modifier = Modifier.fillMaxWidth()) {
                                     Text(
-                                        text = "Registered & Logged-In Users (${state.allUsers.size})",
+                                        text = "Live Cloud Users (${state.allUsers.size})",
                                         style = MaterialTheme.typography.titleSmall,
                                         fontWeight = FontWeight.Bold
                                     )
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = "Shows every Gmail ID signed in on this device, live session status, and login history. (Cross-device sync across different phones requires cloud database integration.)",
+                                        text = "Shows every user who signed in with Google from any phone, live session status, and login count.",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -455,7 +456,7 @@ fun AdminPanelScreen(
                                 }
                             }
 
-                            items(filteredUsers, key = { it.email }) { user ->
+                            items(filteredUsers, key = { it.userId }) { user ->
                                 LuxuryGlassCard(modifier = Modifier.fillMaxWidth()) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
@@ -513,7 +514,7 @@ fun AdminPanelScreen(
                                         ).forEach { targetStatus ->
                                             FilterChip(
                                                 selected = user.status == targetStatus,
-                                                onClick = { onSetUserStatus(user.email, targetStatus) },
+                                                onClick = { onSetUserStatus(user.userId, targetStatus) },
                                                 label = { Text(targetStatus, style = MaterialTheme.typography.labelSmall) }
                                             )
                                         }
@@ -541,7 +542,10 @@ fun AdminPanelScreen(
                                             Text("Add Money", fontWeight = FontWeight.Bold)
                                         }
                                         OutlinedButton(
-                                            onClick = { replyTargetEmail = user.email },
+                                            onClick = {
+                                                replyTargetUserId = user.userId
+                                                replyTargetEmail = user.email
+                                            },
                                             modifier = Modifier.weight(1f)
                                         ) {
                                             Text("Support Reply")
@@ -964,11 +968,16 @@ fun AdminPanelScreen(
         )
     }
 
-    replyTargetEmail?.let { targetEmail ->
+    val rUid = replyTargetUserId
+    val rEmail = replyTargetEmail
+    if (rUid != null && rEmail != null) {
         var replyText by rememberSaveable { mutableStateOf("") }
         AlertDialog(
-            onDismissRequest = { replyTargetEmail = null },
-            title = { Text("Reply to $targetEmail") },
+            onDismissRequest = {
+                replyTargetUserId = null
+                replyTargetEmail = null
+            },
+            title = { Text("Reply to $rEmail") },
             text = {
                 OutlinedTextField(
                     value = replyText,
@@ -980,13 +989,19 @@ fun AdminPanelScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        onSendAdminReply(targetEmail, replyText)
+                        onSendAdminReply(rUid, rEmail, replyText)
+                        replyTargetUserId = null
                         replyTargetEmail = null
                     }
                 ) { Text("Send") }
             },
             dismissButton = {
-                TextButton(onClick = { replyTargetEmail = null }) { Text("Cancel") }
+                TextButton(
+                    onClick = {
+                        replyTargetUserId = null
+                        replyTargetEmail = null
+                    }
+                ) { Text("Cancel") }
             }
         )
     }
