@@ -92,5 +92,7 @@ class MainActivityUiTest {
         composeRule.onNodeWithTag("admin_credit_email_input").assertIsDisplayed()
         composeRule.onNodeWithTag("confirm_admin_credit_button").performClick()
         composeRule.waitForIdle()
+        composeRule.onNodeWithTag("admin_credit_tab").performClick()
+        composeRule.waitForIdle()
     }
 }

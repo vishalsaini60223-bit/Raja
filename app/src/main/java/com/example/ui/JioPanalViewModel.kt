@@ -458,14 +458,21 @@ class JioPanalViewModel(application: Application) : AndroidViewModel(application
         targetEmail: String,
         amount: Double,
         includeCommission: Boolean,
+        deductFromAdminPool: Boolean,
         note: String
     ) {
         viewModelScope.launch {
-            val result = repository.creditUserByAdmin(targetEmail, amount, includeCommission, note)
+            val result = repository.creditUserByAdmin(
+                targetEmail = targetEmail,
+                amount = amount,
+                includeCommission = includeCommission,
+                deductFromAdminPool = deductFromAdminPool,
+                note = note
+            )
             result.onSuccess {
                 auxState.value = auxState.value.copy(
                     errorMessage = null,
-                    feedbackMessage = "Added ${com.example.util.Formatters.formatInr(amount)} to ${targetEmail.trim().lowercase()}"
+                    feedbackMessage = "Credited ${com.example.util.Formatters.formatInr(amount)} to ${targetEmail.trim().lowercase()}"
                 )
             }.onFailure { err ->
                 auxState.value = auxState.value.copy(

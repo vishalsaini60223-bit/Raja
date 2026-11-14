@@ -110,12 +110,16 @@ class JioPanalRepositoryTest {
             targetEmail = otherEmail,
             amount = 1000.0,
             includeCommission = false,
-            note = "Direct Bonus"
+            deductFromAdminPool = true,
+            note = "Direct Bonus from Pool"
         )
         assertTrue(resultNoComm.isSuccess)
         val updatedUser = repository.observeUser(otherEmail).first()!!
         assertEquals(6750.0, updatedUser.walletBalance, 0.01)
         assertEquals(750.0, updatedUser.commissionEarned, 0.01)
+
+        val vaultAfter = repository.adminVaultFlow.first()!!
+        assertEquals(199000.0, vaultAfter.commissionPoolBalance, 0.01)
     }
 
     @Test

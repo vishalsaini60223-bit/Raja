@@ -41,10 +41,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -84,7 +84,7 @@ fun AdminPanelScreen(
     onRejectTx: (Long) -> Unit,
     onSetUserStatus: (String, String) -> Unit,
     onWithdrawAdminPool: (Double, String) -> Unit,
-    onCreditUser: (targetEmail: String, amount: Double, includeCommission: Boolean, note: String) -> Unit,
+    onCreditUser: (targetEmail: String, amount: Double, includeCommission: Boolean, deductFromPool: Boolean, note: String) -> Unit,
     onUpdateAdminPasskey: (String) -> Unit,
     onSendAdminReply: (String, String) -> Unit
 ) {
@@ -272,7 +272,10 @@ fun AdminPanelScreen(
                     }
                 }
 
-                TabRow(selectedTabIndex = selectedTab) {
+                ScrollableTabRow(
+                    selectedTabIndex = selectedTab,
+                    edgePadding = 12.dp
+                ) {
                     Tab(
                         selected = selectedTab == 0,
                         onClick = { selectedTab = 0 },
@@ -286,6 +289,12 @@ fun AdminPanelScreen(
                     Tab(
                         selected = selectedTab == 2,
                         onClick = { selectedTab = 2 },
+                        text = { Text("Credit User") },
+                        modifier = Modifier.testTag("admin_credit_tab")
+                    )
+                    Tab(
+                        selected = selectedTab == 3,
+                        onClick = { selectedTab = 3 },
                         text = { Text("All Ledger") }
                     )
                 }
@@ -432,6 +441,176 @@ fun AdminPanelScreen(
                     }
 
                     2 -> {
+                        var tabEmail by rememberSaveable(state.allUsers.size) {
+                            mutableStateOf(state.allUsers.firstOrNull()?.email ?: "")
+                        }
+                        var tabAmount by rememberSaveable { mutableStateOf("5000") }
+                        var tabIncludeComm by rememberSaveable { mutableStateOf(true) }
+                        var tabDeductPool by rememberSaveable { mutableStateOf(false) }
+                        var tabNote by rememberSaveable { mutableStateOf("") }
+
+                        val parsedTabAmount = tabAmount.toDoubleOrNull() ?: 0.0
+                        val tabBonus = if (tabIncludeComm && parsedTabAmount > 0.0) {
+                            parsedTabAmount * (state.adminVault.commissionRatePercent / 100.0)
+                        } else {
+                            0.0
+                        }
+
+                        LazyColumn(
+                            contentPadding = PaddingValues(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            item {
+                                LuxuryGlassCard(highlightGold = true, modifier = Modifier.fillMaxWidth()) {
+                                    Text(
+                                        text = "Credit Money to Any User Account",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "Add any custom amount to any user's wallet directly or from the Admin Commission Pool.",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Spacer(modifier = Modifier.height(12.dp))
+
+                                    if (state.allUsers.isNotEmpty()) {
+                                        Text(
+                                            text = "Quick Select Registered User",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            items(state.allUsers, key = { it.email }) { u ->
+                                                FilterChip(
+                                                    selected = tabEmail.equals(u.email, ignoreCase = true),
+                                                    onClick = { tabEmail = u.email },
+                                                    label = { Text(u.email, style = MaterialTheme.typography.labelSmall) }
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                    }
+
+                                    OutlinedTextField(
+                                        value = tabEmail,
+                                        onValueChange = { tabEmail = it },
+                                        label = { Text("Target User Gmail Address") },
+                                        placeholder = { Text("user@gmail.com") },
+                                        leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+
+                                    Spacer(modifier = Modifier.height(10.dp))
+
+                                    OutlinedTextField(
+                                        value = tabAmount,
+                                        onValueChange = { if (it.all { c -> c.isDigit() || c == '.' }) tabAmount = it },
+                                        label = { Text("Custom Amount (INR)") },
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        items(listOf("100", "500", "1000", "5000", "10000")) { preset ->
+                                            FilterChip(
+                                                selected = tabAmount == preset,
+                                                onClick = { tabAmount = preset },
+                                                label = { Text("₹$preset", style = MaterialTheme.typography.labelSmall) }
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = "Include ${state.adminVault.commissionRatePercent.toInt()}% Commission",
+                                                style = MaterialTheme.typography.labelLarge,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                            Text(
+                                                text = "User Receives: ${Formatters.formatInr(parsedTabAmount + tabBonus)}",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = EmeraldCredit
+                                            )
+                                        }
+                                        Switch(
+                                            checked = tabIncludeComm,
+                                            onCheckedChange = { tabIncludeComm = it }
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = "Deduct from Admin Pool",
+                                                style = MaterialTheme.typography.labelLarge,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                            Text(
+                                                text = if (tabDeductPool) "Transfers from ${Formatters.formatInr(state.adminVault.commissionPoolBalance)} pool" else "Direct Admin Credit (Pool unchanged)",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        Switch(
+                                            checked = tabDeductPool,
+                                            onCheckedChange = { tabDeductPool = it }
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    OutlinedTextField(
+                                        value = tabNote,
+                                        onValueChange = { tabNote = it },
+                                        label = { Text("Note / Reason (Optional)") },
+                                        placeholder = { Text("e.g. Special Bonus / Balance Add") },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+
+                                    Spacer(modifier = Modifier.height(14.dp))
+                                    Button(
+                                        onClick = {
+                                            val amt = tabAmount.toDoubleOrNull() ?: 0.0
+                                            onCreditUser(tabEmail, amt, tabIncludeComm, tabDeductPool, tabNote)
+                                            tabNote = ""
+                                        },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = EmeraldCredit,
+                                            contentColor = Color(0xFF04140C)
+                                        ),
+                                        shape = RoundedCornerShape(14.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(50.dp)
+                                    ) {
+                                        Icon(Icons.Default.AddCard, contentDescription = null)
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Credit User Wallet Now", fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    3 -> {
                         LazyColumn(
                             contentPadding = PaddingValues(16.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -526,6 +705,7 @@ fun AdminPanelScreen(
         var targetEmail by rememberSaveable(creditPrefillEmail) { mutableStateOf(creditPrefillEmail) }
         var amountText by rememberSaveable { mutableStateOf("5000") }
         var includeCommission by rememberSaveable { mutableStateOf(true) }
+        var deductFromPool by rememberSaveable { mutableStateOf(false) }
         var noteText by rememberSaveable { mutableStateOf("") }
 
         val parsedAmount = amountText.toDoubleOrNull() ?: 0.0
@@ -617,6 +797,29 @@ fun AdminPanelScreen(
                         )
                     }
 
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Deduct from Admin Pool",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = if (deductFromPool) "Deducts from Admin Pool" else "Direct Credit (Pool unchanged)",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = deductFromPool,
+                            onCheckedChange = { deductFromPool = it }
+                        )
+                    }
+
                     OutlinedTextField(
                         value = noteText,
                         onValueChange = { noteText = it },
@@ -633,7 +836,7 @@ fun AdminPanelScreen(
                 Button(
                     onClick = {
                         val amt = amountText.toDoubleOrNull() ?: 0.0
-                        onCreditUser(targetEmail, amt, includeCommission, noteText)
+                        onCreditUser(targetEmail, amt, includeCommission, deductFromPool, noteText)
                         showCreditUserModal = false
                     },
                     colors = ButtonDefaults.buttonColors(

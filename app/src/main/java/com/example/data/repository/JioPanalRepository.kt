@@ -498,6 +498,7 @@ class JioPanalRepository(
         targetEmail: String,
         amount: Double,
         includeCommission: Boolean = true,
+        deductFromAdminPool: Boolean = false,
         note: String = ""
     ): Result<Unit> {
         ensureInitialized()
@@ -510,6 +511,20 @@ class JioPanalRepository(
         }
 
         val vault = dao.getAdminVault() ?: AdminVaultEntity()
+        val commission = if (includeCommission) {
+            ((amount * (vault.commissionRatePercent / 100.0)) * 100.0).roundToInt() / 100.0
+        } else {
+            0.0
+        }
+        val totalAdded = amount + commission
+        if (deductFromAdminPool && totalAdded > vault.commissionPoolBalance) {
+            return Result.failure(
+                IllegalArgumentException(
+                    "Insufficient Admin Pool balance (${Formatters.formatInr(vault.commissionPoolBalance)})"
+                )
+            )
+        }
+
         var user = dao.getUser(cleanEmail)
         if (user == null) {
             val prefix = cleanEmail.substringBefore("@")
@@ -531,12 +546,6 @@ class JioPanalRepository(
             dao.upsertUser(user)
         }
 
-        val commission = if (includeCommission) {
-            ((amount * (vault.commissionRatePercent / 100.0)) * 100.0).roundToInt() / 100.0
-        } else {
-            0.0
-        }
-        val totalAdded = amount + commission
         val newStatus = if (amount >= vault.activationAmount && user.status != UserAccountEntity.STATUS_SUSPENDED) {
             UserAccountEntity.STATUS_ACTIVE
         } else {
@@ -549,6 +558,15 @@ class JioPanalRepository(
             totalDeposited = user.totalDeposited + amount
         )
         dao.updateUser(updatedUser)
+
+        if (deductFromAdminPool) {
+            dao.upsertAdminVault(
+                vault.copy(
+                    commissionPoolBalance = vault.commissionPoolBalance - totalAdded,
+                    updatedAt = System.currentTimeMillis()
+                )
+            )
+        }
 
         val ref = "ADMCR${System.currentTimeMillis().toString().takeLast(6)}"
         val reason = note.trim().ifBlank { "Added by Admin Control Vault" }
