@@ -170,15 +170,17 @@ fun DashboardScreen(
                             )
                         }
                     }
-                    IconButton(
-                        onClick = onOpenAdminVault,
-                        modifier = Modifier.testTag("admin_vault_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.AdminPanelSettings,
-                            contentDescription = strings.adminVaultTitle,
-                            tint = RoyalGoldBright
-                        )
+                    if (state.isAuthorizedAdmin) {
+                        IconButton(
+                            onClick = onOpenAdminVault,
+                            modifier = Modifier.testTag("admin_vault_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AdminPanelSettings,
+                                contentDescription = strings.adminVaultTitle,
+                                tint = RoyalGoldBright
+                            )
+                        }
                     }
                 }
             }
@@ -350,13 +352,23 @@ fun DashboardScreen(
                     onClick = onNavigateSupport,
                     modifier = Modifier.weight(1f)
                 )
-                QuickActionTile(
-                    icon = Icons.Default.AdminPanelSettings,
-                    label = "Admin Key",
-                    accent = AmberPending,
-                    onClick = onOpenAdminVault,
-                    modifier = Modifier.weight(1f)
-                )
+                if (state.isAuthorizedAdmin) {
+                    QuickActionTile(
+                        icon = Icons.Default.AdminPanelSettings,
+                        label = "Admin Key",
+                        accent = AmberPending,
+                        onClick = onOpenAdminVault,
+                        modifier = Modifier.weight(1f)
+                    )
+                } else {
+                    QuickActionTile(
+                        icon = Icons.AutoMirrored.Filled.Send,
+                        label = "Telegram",
+                        accent = AmberPending,
+                        onClick = onNavigateSupport,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
             }
         }
 
@@ -399,26 +411,50 @@ fun DashboardScreen(
                     )
                 }
 
-                LuxuryGlassCard(
-                    modifier = Modifier.weight(1f),
-                    onClick = onOpenAdminVault
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.CurrencyRupee,
-                        contentDescription = null,
-                        tint = EmeraldCredit
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Admin Vault",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "Secure Key • Withdraw & Approve",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                if (state.isAuthorizedAdmin) {
+                    LuxuryGlassCard(
+                        modifier = Modifier.weight(1f),
+                        onClick = onOpenAdminVault
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CurrencyRupee,
+                            contentDescription = null,
+                            tint = EmeraldCredit
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Admin Vault",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Secure Key • Withdraw & Approve",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                } else {
+                    LuxuryGlassCard(
+                        modifier = Modifier.weight(1f),
+                        onClick = onNavigateLedger
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CurrencyRupee,
+                            contentDescription = null,
+                            tint = EmeraldCredit
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "15% Payouts",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Offline Ledger & Instant Withdraw",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
         }

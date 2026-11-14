@@ -52,6 +52,7 @@ data class JioPanalUiState(
     val pendingApprovals: List<TransactionEntity> = emptyList(),
     val allUsers: List<UserAccountEntity> = emptyList(),
     val allTransactions: List<TransactionEntity> = emptyList(),
+    val isAuthorizedAdmin: Boolean = false,
     val isAdminUnlocked: Boolean = false,
     val feedbackMessage: String? = null,
     val errorMessage: String? = null
@@ -131,6 +132,8 @@ class JioPanalViewModel(application: Application) : AndroidViewModel(application
             prefs.biometricEnabled && !aux.isSessionUnlocked -> AuthStage.BIOMETRIC_LOCK
             else -> AuthStage.AUTHENTICATED
         }
+        val isAuthorizedAdmin =
+            prefs.loggedInEmail?.trim()?.lowercase() == AdminVaultEntity.AUTHORIZED_ADMIN_EMAIL
         JioPanalUiState(
             isLoading = false,
             preferences = prefs,
@@ -151,7 +154,8 @@ class JioPanalViewModel(application: Application) : AndroidViewModel(application
             pendingApprovals = adminBundle.pendingApprovals,
             allUsers = adminBundle.allUsers,
             allTransactions = adminBundle.allTransactions,
-            isAdminUnlocked = aux.isAdminUnlocked,
+            isAuthorizedAdmin = isAuthorizedAdmin,
+            isAdminUnlocked = isAuthorizedAdmin && aux.isAdminUnlocked,
             feedbackMessage = aux.feedbackMessage,
             errorMessage = aux.errorMessage
         )
@@ -250,10 +254,14 @@ class JioPanalViewModel(application: Application) : AndroidViewModel(application
             repository.logout()
             auxState.value = auxState.value.copy(
                 splashDone = true,
+                pendingEmail = "",
+                pendingReferralCode = "",
+                activeOtpCode = "",
                 isOtpStep = false,
                 isSessionUnlocked = false,
                 isAdminUnlocked = false,
-                feedbackMessage = "Signed out securely"
+                feedbackMessage = null,
+                errorMessage = null
             )
         }
     }
@@ -389,6 +397,13 @@ class JioPanalViewModel(application: Application) : AndroidViewModel(application
 
     // Admin Controls
     fun verifyAdminPasskey(passkey: String) {
+        if (!uiState.value.isAuthorizedAdmin) {
+            auxState.value = auxState.value.copy(
+                isAdminUnlocked = false,
+                errorMessage = "Access denied: Only authorized Admin Gmail can open Admin Vault."
+            )
+            return
+        }
         viewModelScope.launch {
             val ok = repository.verifyAdminPasskey(passkey)
             if (ok) {

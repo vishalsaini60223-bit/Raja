@@ -25,20 +25,7 @@ class MainActivityUiTest {
     @get:Rule
     val composeRule = createAndroidComposeRule<MainActivity>()
 
-    @Test
-    fun `full login and panel navigation works without auto-back or crash`() {
-        // 1. Advance past 1300ms splash
-        composeRule.mainClock.advanceTimeBy(1600)
-        composeRule.waitForIdle()
-
-        // 2. Gmail input & Send OTP
-        composeRule.onNodeWithTag("gmail_input").performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithTag("gmail_input").performTextInput("vishal@gmail.com")
-        composeRule.onNodeWithTag("send_otp_button").performScrollTo().performClick()
-        composeRule.waitForIdle()
-
-        // 3. Read OTP from the Security Code preview and verify login
-        composeRule.onNodeWithTag("otp_input").performScrollTo().assertIsDisplayed()
+    private fun readDisplayedOtpCode(): String {
         var otpCode = ""
         val nodes = composeRule.onAllNodesWithText("Security Code:", substring = true)
             .fetchSemanticsNodes()
@@ -52,21 +39,36 @@ class MainActivityUiTest {
             }
         }
         check(otpCode.length == 6) { "Expected 6-digit OTP in preview, got '$otpCode'" }
+        return otpCode
+    }
 
-        composeRule.onNodeWithTag("otp_input").performTextInput(otpCode)
+    @Test
+    fun `full login and panel navigation works without auto-back or crash`() {
+        // 1. Advance past 1300ms splash
+        composeRule.mainClock.advanceTimeBy(1600)
+        composeRule.waitForIdle()
+
+        // 2. Non-admin Gmail login -> Admin Vault must be hidden
+        composeRule.onNodeWithTag("gmail_input").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("gmail_input").performTextInput("vishal@gmail.com")
+        composeRule.onNodeWithTag("send_otp_button").performScrollTo().performClick()
+        composeRule.waitForIdle()
+
+        composeRule.onNodeWithTag("otp_input").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("otp_input").performTextInput(readDisplayedOtpCode())
         composeRule.onNodeWithTag("verify_otp_button").performScrollTo().performClick()
         composeRule.waitUntil(timeoutMillis = 5000) {
-            composeRule.onAllNodes(hasTestTag("admin_vault_button"))
+            composeRule.onAllNodes(hasTestTag("nav_activate"))
                 .fetchSemanticsNodes().isNotEmpty()
         }
 
-        // 4. Dashboard should now be visible and stay stable
-        composeRule.onNodeWithTag("admin_vault_button").assertIsDisplayed()
+        // Non-admin user must NOT see Admin Vault button
+        composeRule.onNodeWithTag("admin_vault_button").assertDoesNotExist()
         composeRule.onNodeWithTag("nav_activate").performClick()
         composeRule.waitForIdle()
         composeRule.onNodeWithText("Account Activation & Pay").assertIsDisplayed()
 
-        // 5. Navigate to Ledger, Support, Profile
+        // Navigate to Ledger, Support, Profile & verify Admin button is hidden, then Sign Out
         composeRule.onNodeWithTag("nav_ledger").performClick()
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("nav_support").performClick()
@@ -74,8 +76,32 @@ class MainActivityUiTest {
         composeRule.onNodeWithTag("telegram_support_button").assertIsDisplayed()
         composeRule.onNodeWithTag("nav_profile").performClick()
         composeRule.waitForIdle()
+        composeRule.onNodeWithTag("profile_open_admin_button").assertDoesNotExist()
 
-        // 6. Open Admin Vault & unlock with JIOADMIN2026
+        composeRule.onNodeWithTag("profile_lazy_column")
+            .performScrollToNode(hasTestTag("logout_button"))
+        composeRule.onNodeWithTag("logout_button").performClick()
+        composeRule.waitUntil(timeoutMillis = 5000) {
+            composeRule.onAllNodes(hasTestTag("gmail_input"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+
+        // 3. Authorized Admin Gmail login -> Admin Vault must be visible & unlockable
+        composeRule.onNodeWithTag("gmail_input").performScrollTo().performTextInput("vishalsaini60223@gmail.com")
+        composeRule.onNodeWithTag("send_otp_button").performScrollTo().performClick()
+        composeRule.waitForIdle()
+
+        composeRule.onNodeWithTag("otp_input").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("otp_input").performTextInput(readDisplayedOtpCode())
+        composeRule.onNodeWithTag("verify_otp_button").performScrollTo().performClick()
+        composeRule.waitUntil(timeoutMillis = 5000) {
+            composeRule.onAllNodes(hasTestTag("admin_vault_button"))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+
+        composeRule.onNodeWithTag("admin_vault_button").assertIsDisplayed()
+        composeRule.onNodeWithTag("nav_profile").performClick()
+        composeRule.waitForIdle()
         composeRule.onNodeWithTag("profile_lazy_column")
             .performScrollToNode(hasTestTag("profile_open_admin_button"))
         composeRule.onNodeWithTag("profile_open_admin_button").performClick()

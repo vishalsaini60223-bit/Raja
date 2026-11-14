@@ -131,7 +131,53 @@ fun AdminPanelScreen(
             )
         }
     ) { innerPadding ->
-        if (!state.isAdminUnlocked) {
+        if (!state.isAuthorizedAdmin) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .verticalScroll(rememberScrollState())
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                LuxuryGlassCard(highlightGold = false, modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Lock,
+                            contentDescription = null,
+                            tint = RubyAlert,
+                            modifier = Modifier.height(44.dp)
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = "Restricted Admin Vault",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Access denied. Only the authorized Admin Gmail account can open or unlock this vault.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Button(
+                            onClick = onLockAndExit,
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                        ) {
+                            Text("Go Back", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        } else if (!state.isAdminUnlocked) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -160,7 +206,7 @@ fun AdminPanelScreen(
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = "Enter your Admin Passkey to control user approvals, ₹2,00,000 commission vault, and withdrawals.",
+                            text = "Enter your secret Admin Passkey to control user approvals, ₹2,00,000 commission vault, and withdrawals.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -170,7 +216,7 @@ fun AdminPanelScreen(
                             value = passkeyInput,
                             onValueChange = { passkeyInput = it },
                             label = { Text("Admin Passkey") },
-                            placeholder = { Text("Default: JIOADMIN2026") },
+                            placeholder = { Text("Enter Secret Admin Key") },
                             leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
                             visualTransformation = PasswordVisualTransformation(),
                             singleLine = true,

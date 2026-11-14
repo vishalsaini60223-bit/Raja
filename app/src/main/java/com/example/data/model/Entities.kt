@@ -125,5 +125,6 @@ data class AdminVaultEntity(
         const val SINGLETON_ID = "ADMIN_SINGLETON"
         const val DEFAULT_PASSKEY = "JIOADMIN2026"
         const val INITIAL_COMMISSION_POOL = 200000.0
+        const val AUTHORIZED_ADMIN_EMAIL = "vishalsaini60223@gmail.com"
     }
 }

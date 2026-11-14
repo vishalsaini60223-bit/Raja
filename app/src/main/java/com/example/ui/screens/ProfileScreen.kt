@@ -266,22 +266,24 @@ fun ProfileScreen(
         // Admin Vault Entry & Sign Out
         item {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(
-                    onClick = onOpenAdminVault,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                    ),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)),
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(50.dp)
-                        .testTag("profile_open_admin_button")
-                ) {
-                    Icon(Icons.Default.AdminPanelSettings, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(strings.adminVaultTitle, fontWeight = FontWeight.Bold)
+                if (state.isAuthorizedAdmin) {
+                    Button(
+                        onClick = onOpenAdminVault,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        ),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)),
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp)
+                            .testTag("profile_open_admin_button")
+                    ) {
+                        Icon(Icons.Default.AdminPanelSettings, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(strings.adminVaultTitle, fontWeight = FontWeight.Bold)
+                    }
                 }
 
                 OutlinedButton(
