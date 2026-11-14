@@ -27,7 +27,6 @@ import kotlinx.coroutines.launch
 enum class AuthStage {
     SPLASH,
     EMAIL_INPUT,
-    OTP_VERIFY,
     BIOMETRIC_LOCK,
     AUTHENTICATED
 }
@@ -37,9 +36,6 @@ data class JioPanalUiState(
     val preferences: UserPreferences = UserPreferences(),
     val language: AppLanguage = AppLanguage.ENGLISH,
     val authStage: AuthStage = AuthStage.SPLASH,
-    val pendingEmail: String = "",
-    val pendingReferralCode: String = "",
-    val activeOtpCode: String = "",
     val user: UserAccountEntity? = null,
     val transactions: List<TransactionEntity> = emptyList(),
     val payoutMethods: List<PayoutMethodEntity> = emptyList(),
@@ -54,18 +50,16 @@ data class JioPanalUiState(
     val allTransactions: List<TransactionEntity> = emptyList(),
     val isAuthorizedAdmin: Boolean = false,
     val isAdminUnlocked: Boolean = false,
+    val isPanelRunning: Boolean = false,
     val feedbackMessage: String? = null,
     val errorMessage: String? = null
 )
 
 private data class SessionAuxState(
     val splashDone: Boolean = false,
-    val pendingEmail: String = "",
-    val pendingReferralCode: String = "",
-    val activeOtpCode: String = "",
-    val isOtpStep: Boolean = false,
     val isSessionUnlocked: Boolean = false,
     val isAdminUnlocked: Boolean = false,
+    val isPanelRunning: Boolean = false,
     val feedbackMessage: String? = null,
     val errorMessage: String? = null
 )
@@ -126,22 +120,18 @@ class JioPanalViewModel(application: Application) : AndroidViewModel(application
     ) { prefs, aux, userBundle, adminBundle ->
         val stage = when {
             !aux.splashDone -> AuthStage.SPLASH
-            prefs.loggedInEmail.isNullOrBlank() -> {
-                if (aux.isOtpStep) AuthStage.OTP_VERIFY else AuthStage.EMAIL_INPUT
-            }
+            prefs.loggedInEmail.isNullOrBlank() -> AuthStage.EMAIL_INPUT
             prefs.biometricEnabled && !aux.isSessionUnlocked -> AuthStage.BIOMETRIC_LOCK
             else -> AuthStage.AUTHENTICATED
         }
         val isAuthorizedAdmin =
             prefs.loggedInEmail?.trim()?.lowercase() == AdminVaultEntity.AUTHORIZED_ADMIN_EMAIL
+        val isUserActive = userBundle.user?.status == UserAccountEntity.STATUS_ACTIVE
         JioPanalUiState(
             isLoading = false,
             preferences = prefs,
             language = AppLanguage.fromCode(prefs.languageCode),
             authStage = stage,
-            pendingEmail = aux.pendingEmail,
-            pendingReferralCode = aux.pendingReferralCode,
-            activeOtpCode = aux.activeOtpCode,
             user = userBundle.user,
             transactions = userBundle.transactions,
             payoutMethods = userBundle.payoutMethods,
@@ -156,6 +146,7 @@ class JioPanalViewModel(application: Application) : AndroidViewModel(application
             allTransactions = adminBundle.allTransactions,
             isAuthorizedAdmin = isAuthorizedAdmin,
             isAdminUnlocked = isAuthorizedAdmin && aux.isAdminUnlocked,
+            isPanelRunning = isUserActive && aux.isPanelRunning,
             feedbackMessage = aux.feedbackMessage,
             errorMessage = aux.errorMessage
         )
@@ -175,63 +166,20 @@ class JioPanalViewModel(application: Application) : AndroidViewModel(application
         auxState.value = auxState.value.copy(splashDone = true)
     }
 
-    fun requestGmailOtp(email: String, referralCode: String) {
-        val clean = email.trim().lowercase()
-        if (!clean.contains("@") || (!clean.endsWith("@gmail.com") && !clean.contains("."))) {
-            auxState.value = auxState.value.copy(errorMessage = "Please enter a valid Gmail address (e.g. name@gmail.com)")
-            return
-        }
-        val otp = repository.generateSixDigitOtp(clean)
-        auxState.value = auxState.value.copy(
-            pendingEmail = clean,
-            pendingReferralCode = referralCode.trim().uppercase(),
-            activeOtpCode = otp,
-            isOtpStep = true,
-            errorMessage = null,
-            feedbackMessage = null
-        )
-    }
-
-    fun resendOtp() {
-        val email = auxState.value.pendingEmail
-        if (email.isBlank()) return
-        val otp = repository.generateSixDigitOtp(email)
-        auxState.value = auxState.value.copy(
-            activeOtpCode = otp,
-            errorMessage = null,
-            feedbackMessage = "New 6-digit OTP dispatched to $email"
-        )
-    }
-
-    fun backToEmailInput() {
-        auxState.value = auxState.value.copy(
-            isOtpStep = false,
-            activeOtpCode = "",
-            errorMessage = null
-        )
-    }
-
-    fun verifyOtpAndLogin(enteredOtp: String) {
-        val expected = auxState.value.activeOtpCode
-        if (enteredOtp.trim() != expected || expected.isBlank()) {
-            auxState.value = auxState.value.copy(errorMessage = "Invalid 6-digit OTP. Please check your notification/OTP code.")
-            return
-        }
-        val email = auxState.value.pendingEmail
-        val refCode = auxState.value.pendingReferralCode
+    fun loginWithPassword(email: String, password: String, referralCode: String) {
         viewModelScope.launch {
-            auxState.value = auxState.value.copy(
-                isSessionUnlocked = true,
-                errorMessage = null
-            )
-            repository.completeGmailLogin(email, refCode)
-            auxState.value = auxState.value.copy(
-                isOtpStep = false,
-                activeOtpCode = "",
-                isSessionUnlocked = true,
-                errorMessage = null,
-                feedbackMessage = "Welcome to Jio Panal!"
-            )
+            val result = repository.loginOrRegisterWithPassword(email, password, referralCode)
+            result.onSuccess {
+                auxState.value = auxState.value.copy(
+                    isSessionUnlocked = true,
+                    errorMessage = null,
+                    feedbackMessage = null
+                )
+            }.onFailure { err ->
+                auxState.value = auxState.value.copy(
+                    errorMessage = err.message ?: "Login failed"
+                )
+            }
         }
     }
 
@@ -250,20 +198,35 @@ class JioPanalViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun logout() {
+        val currentEmail = uiState.value.user?.email ?: uiState.value.preferences.loggedInEmail
         viewModelScope.launch {
-            repository.logout()
+            repository.logout(currentEmail)
             auxState.value = auxState.value.copy(
                 splashDone = true,
-                pendingEmail = "",
-                pendingReferralCode = "",
-                activeOtpCode = "",
-                isOtpStep = false,
                 isSessionUnlocked = false,
                 isAdminUnlocked = false,
+                isPanelRunning = false,
                 feedbackMessage = null,
                 errorMessage = null
             )
         }
+    }
+
+    fun toggleRunPanal() {
+        val user = uiState.value.user
+        if (user?.status != UserAccountEntity.STATUS_ACTIVE) {
+            auxState.value = auxState.value.copy(
+                isPanelRunning = false,
+                errorMessage = "RUN Panal Locked: Account activation (₹5,000 + Admin Approval) required first."
+            )
+            return
+        }
+        val nextRunning = !auxState.value.isPanelRunning
+        auxState.value = auxState.value.copy(
+            isPanelRunning = nextRunning,
+            errorMessage = null,
+            feedbackMessage = if (nextRunning) "RUN Panal Started • Live Recorded Feed Active" else "RUN Panal Paused"
+        )
     }
 
     fun setDarkMode(enabled: Boolean) {
@@ -364,7 +327,7 @@ class JioPanalViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             val result = repository.requestUserWithdrawal(email, amount, destinationLabel)
             result.onSuccess {
-                auxState.value = auxState.value.copy(feedbackMessage = "Withdrawal processed to $destinationLabel")
+                auxState.value = auxState.value.copy(feedbackMessage = "Withdrawal request sent to Admin! Pending approval.")
             }.onFailure { err ->
                 auxState.value = auxState.value.copy(errorMessage = err.message ?: "Withdrawal failed")
             }
@@ -436,7 +399,7 @@ class JioPanalViewModel(application: Application) : AndroidViewModel(application
     fun approvePendingTx(txId: Long) {
         viewModelScope.launch {
             repository.approveTransaction(txId)
-            auxState.value = auxState.value.copy(feedbackMessage = "Approved! User activated & 15% commission credited.")
+            auxState.value = auxState.value.copy(feedbackMessage = "Request approved and ledger updated!")
         }
     }
 

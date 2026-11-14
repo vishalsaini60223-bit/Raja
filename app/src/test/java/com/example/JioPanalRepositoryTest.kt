@@ -48,7 +48,7 @@ class JioPanalRepositoryTest {
     }
 
     @Test
-    fun `activation approval credits 15 percent commission and updates user status`() = runBlocking {
+    fun `password auth, activation approval, and withdrawal approval work cleanly`() = runBlocking {
         repository.ensureInitialized()
         val vault = repository.adminVaultFlow.first()!!
         assertEquals(200000.0, vault.commissionPoolBalance, 0.01)
@@ -56,8 +56,23 @@ class JioPanalRepositoryTest {
         assertEquals("@Sainishaab9076", vault.telegramHandle)
 
         val email = "partner@gmail.com"
-        val user = repository.completeGmailLogin(email)
+        val loginRes = repository.loginOrRegisterWithPassword(email, "pass1234")
+        assertTrue(loginRes.isSuccess)
+        val user = loginRes.getOrThrow()
         assertEquals(UserAccountEntity.STATUS_INACTIVE, user.status)
+        assertTrue(user.isLoggedIn)
+
+        // Wrong password must fail
+        val badPassRes = repository.loginOrRegisterWithPassword(email, "wrongpass")
+        assertTrue(badPassRes.isFailure)
+
+        // Logout & re-login increments loginCount
+        repository.logout(email)
+        val loggedOutUser = repository.observeUser(email).first()!!
+        assertTrue(!loggedOutUser.isLoggedIn)
+        val reLoginRes = repository.loginOrRegisterWithPassword(email, "pass1234")
+        assertTrue(reLoginRes.isSuccess)
+        assertEquals(2, reLoginRes.getOrThrow().loginCount)
 
         repository.submitActivationOrDeposit(
             email = email,
@@ -81,6 +96,25 @@ class JioPanalRepositoryTest {
         assertEquals(750.0, activeUser.commissionEarned, 0.01)
         assertEquals(5750.0, activeUser.walletBalance, 0.01)
         assertEquals(5000.0, activeUser.totalDeposited, 0.01)
+
+        // User withdrawal goes to Pending Admin Approval first
+        val userWithdrawReq = repository.requestUserWithdrawal(email, 1000.0, "partner@upi")
+        assertTrue(userWithdrawReq.isSuccess)
+        assertEquals(4750.0, repository.observeUser(email).first()!!.walletBalance, 0.01)
+        val pendingAfterWd = repository.pendingTransactionsFlow.first()
+        assertEquals(1, pendingAfterWd.size)
+
+        // Rejecting withdrawal refunds wallet balance
+        repository.rejectTransaction(pendingAfterWd.first().id)
+        assertEquals(5750.0, repository.observeUser(email).first()!!.walletBalance, 0.01)
+
+        // Second withdrawal approved by Admin settles cleanly
+        repository.requestUserWithdrawal(email, 500.0, "partner@upi")
+        val pendingWd2 = repository.pendingTransactionsFlow.first()
+        assertEquals(1, pendingWd2.size)
+        repository.approveTransaction(pendingWd2.first().id)
+        assertEquals(0, repository.pendingTransactionsFlow.first().size)
+        assertEquals(5250.0, repository.observeUser(email).first()!!.walletBalance, 0.01)
 
         val withdrawResult = repository.withdrawAdminCommission(50000.0, "vishalkumar90@upi", email)
         assertTrue(withdrawResult.isSuccess)

@@ -240,7 +240,7 @@ fun TransactionsAndAccountsScreen(
                         if (state.payoutMethods.isEmpty()) {
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
-                                text = "Add your UPI ID or Bank Account below to enable instant withdrawals.",
+                                text = "Add your UPI ID or Bank Account below to submit withdrawal requests for Admin approval.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -348,6 +348,11 @@ fun TransactionsAndAccountsScreen(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
+                    Text(
+                        text = "Withdrawal request will be sent to Admin Control for approval before settlement.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             },
             confirmButton = {
@@ -358,7 +363,7 @@ fun TransactionsAndAccountsScreen(
                         showWithdrawDialog = false
                     }
                 ) {
-                    Text("Confirm Payout")
+                    Text("Request Withdrawal")
                 }
             },
             dismissButton = {

@@ -30,13 +30,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.MarkEmailRead
 import androidx.compose.material.icons.filled.VerifiedUser
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
@@ -70,11 +70,11 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
 import com.example.R
-import com.example.ui.AuthStage
 import com.example.ui.components.CommissionRibbon
 import com.example.ui.components.LuxuryGlassCard
 import com.example.ui.i18n.AppLanguage
@@ -178,22 +178,17 @@ fun LuxurySplashScreen(onFinished: () -> Unit) {
 }
 
 @Composable
-fun GmailOtpAuthScreen(
-    stage: AuthStage,
+fun GmailPasswordAuthScreen(
     strings: AppStrings,
     selectedLanguage: AppLanguage,
-    pendingEmail: String,
-    activeOtpCode: String,
     errorMessage: String?,
     onLanguageSelected: (AppLanguage) -> Unit,
-    onRequestOtp: (String, String) -> Unit,
-    onResendOtp: () -> Unit,
-    onBackToEmail: () -> Unit,
-    onVerifyOtp: (String) -> Unit
+    onLoginWithPassword: (email: String, password: String, referralCode: String) -> Unit
 ) {
-    var emailInput by rememberSaveable { mutableStateOf(pendingEmail) }
+    var emailInput by rememberSaveable { mutableStateOf("") }
+    var passwordInput by rememberSaveable { mutableStateOf("") }
+    var passwordVisible by rememberSaveable { mutableStateOf(false) }
     var referralInput by rememberSaveable { mutableStateOf("") }
-    var otpInput by rememberSaveable { mutableStateOf("") }
 
     Box(
         modifier = Modifier
@@ -285,175 +280,98 @@ fun GmailOtpAuthScreen(
             Spacer(modifier = Modifier.height(14.dp))
 
             LuxuryGlassCard(highlightGold = true, modifier = Modifier.fillMaxWidth()) {
-                if (stage == AuthStage.EMAIL_INPUT) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.VerifiedUser,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                        Text(
-                            text = "Gmail OTP Secure Login",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.VerifiedUser,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
                     Text(
-                        text = "Sign in with your Gmail address. A 6-digit OTP will be dispatched for instant verification.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        text = "Gmail & Password Login",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
                     )
-                    Spacer(modifier = Modifier.height(16.dp))
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "Sign in with your Gmail ID and password (min 6 characters). New Gmail accounts are created automatically.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(16.dp))
 
-                    OutlinedTextField(
-                        value = emailInput,
-                        onValueChange = { emailInput = it },
-                        label = { Text(strings.gmailLabel) },
-                        placeholder = { Text(strings.gmailPlaceholder) },
-                        leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("gmail_input")
-                    )
+                OutlinedTextField(
+                    value = emailInput,
+                    onValueChange = { emailInput = it },
+                    label = { Text(strings.gmailLabel) },
+                    placeholder = { Text(strings.gmailPlaceholder) },
+                    leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("gmail_input")
+                )
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
-                    OutlinedTextField(
-                        value = referralInput,
-                        onValueChange = { referralInput = it },
-                        label = { Text("Referral Code (Optional)") },
-                        placeholder = { Text("e.g. JP-VISHAL-15") },
-                        leadingIcon = { Icon(Icons.Default.Key, contentDescription = null) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    if (!errorMessage.isNullOrBlank()) {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Text(
-                            text = errorMessage,
-                            color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(18.dp))
-
-                    Button(
-                        onClick = { onRequestOtp(emailInput, referralInput) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(52.dp)
-                            .testTag("send_otp_button"),
-                        shape = RoundedCornerShape(14.dp)
-                    ) {
-                        Text(strings.sendOtp, fontWeight = FontWeight.Bold)
-                    }
-                } else {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        IconButton(onClick = onBackToEmail) {
+                OutlinedTextField(
+                    value = passwordInput,
+                    onValueChange = { passwordInput = it },
+                    label = { Text("Password") },
+                    placeholder = { Text("Min 6 characters") },
+                    leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
+                    trailingIcon = {
+                        IconButton(onClick = { passwordVisible = !passwordVisible }) {
                             Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back"
+                                imageVector = if (passwordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                contentDescription = if (passwordVisible) "Hide password" else "Show password"
                             )
                         }
-                        Text(
-                            text = strings.enterOtp,
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
+                    },
+                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("password_input")
+                )
 
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = EmeraldCredit.copy(alpha = 0.14f),
-                        border = BorderStroke(1.dp, EmeraldCredit.copy(alpha = 0.5f)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.MarkEmailRead,
-                                contentDescription = null,
-                                tint = EmeraldCredit
-                            )
-                            Column {
-                                Text(
-                                    text = "${strings.otpSentBanner}: $pendingEmail",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Text(
-                                    text = "Security Code: $activeOtpCode (Notification + Instant Preview)",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = EmeraldCredit,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-                    }
+                Spacer(modifier = Modifier.height(12.dp))
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                OutlinedTextField(
+                    value = referralInput,
+                    onValueChange = { referralInput = it },
+                    label = { Text("Referral Code (Optional)") },
+                    placeholder = { Text("e.g. JP-VISHAL-15") },
+                    leadingIcon = { Icon(Icons.Default.Key, contentDescription = null) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
 
-                    OutlinedTextField(
-                        value = otpInput,
-                        onValueChange = { if (it.length <= 6 && it.all { ch -> ch.isDigit() }) otpInput = it },
-                        label = { Text("6-Digit OTP") },
-                        placeholder = { Text("••••••") },
-                        leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("otp_input")
+                if (!errorMessage.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = errorMessage,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodyMedium
                     )
+                }
 
-                    if (!errorMessage.isNullOrBlank()) {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Text(
-                            text = errorMessage,
-                            color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                    }
+                Spacer(modifier = Modifier.height(18.dp))
 
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    Button(
-                        onClick = { onVerifyOtp(otpInput) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(52.dp)
-                            .testTag("verify_otp_button"),
-                        shape = RoundedCornerShape(14.dp)
-                    ) {
-                        Text(strings.verifyLogin, fontWeight = FontWeight.Bold)
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-                    TextButton(
-                        onClick = {
-                            otpInput = ""
-                            onResendOtp()
-                        },
-                        modifier = Modifier.align(Alignment.CenterHorizontally)
-                    ) {
-                        Text(strings.resendOtp)
-                    }
+                Button(
+                    onClick = { onLoginWithPassword(emailInput, passwordInput, referralInput) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp)
+                        .testTag("login_button"),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Text("Login / Create Account", fontWeight = FontWeight.Bold)
                 }
             }
 

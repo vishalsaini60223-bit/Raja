@@ -25,7 +25,7 @@ interface JioPanalDao {
     @Query("SELECT * FROM users WHERE email = :email LIMIT 1")
     suspend fun getUser(email: String): UserAccountEntity?
 
-    @Query("SELECT * FROM users ORDER BY createdAt DESC")
+    @Query("SELECT * FROM users ORDER BY isLoggedIn DESC, lastLoginAt DESC, createdAt DESC")
     fun observeAllUsers(): Flow<List<UserAccountEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)

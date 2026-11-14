@@ -62,6 +62,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.example.data.model.TransactionEntity
 import com.example.data.model.UserAccountEntity
 import com.example.ui.JioPanalUiState
 import com.example.ui.components.AccountStatusPill
@@ -330,7 +331,7 @@ fun AdminPanelScreen(
                     Tab(
                         selected = selectedTab == 1,
                         onClick = { selectedTab = 1 },
-                        text = { Text("Users (${state.allUsers.size})") }
+                        text = { Text("Users & Logins (${state.allUsers.size})") }
                     )
                     Tab(
                         selected = selectedTab == 2,
@@ -355,7 +356,7 @@ fun AdminPanelScreen(
                                 item {
                                     LuxuryGlassCard(modifier = Modifier.fillMaxWidth()) {
                                         Text(
-                                            text = "No pending ₹5,000 activation or deposit approvals right now.",
+                                            text = "No pending deposit, activation, or withdrawal requests right now.",
                                             style = MaterialTheme.typography.bodyMedium,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
@@ -363,7 +364,15 @@ fun AdminPanelScreen(
                                 }
                             } else {
                                 items(state.pendingApprovals, key = { it.id }) { tx ->
+                                    val isWithdrawalReq = tx.type == TransactionEntity.TYPE_WITHDRAWAL
                                     LuxuryGlassCard(highlightGold = true, modifier = Modifier.fillMaxWidth()) {
+                                        Text(
+                                            text = if (isWithdrawalReq) "WITHDRAWAL REQUEST" else "ACTIVATION / DEPOSIT REQUEST",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = if (isWithdrawalReq) RoyalGoldBright else EmeraldCredit,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
                                         Text(
                                             text = "${tx.title} • ${Formatters.formatInr(tx.amount)}",
                                             style = MaterialTheme.typography.titleMedium,
@@ -374,9 +383,13 @@ fun AdminPanelScreen(
                                             style = MaterialTheme.typography.bodyMedium
                                         )
                                         Text(
-                                            text = "UTR: ${tx.utrOrRef} • 15% Bonus: ${Formatters.formatInr(tx.commissionAmount)}",
+                                            text = if (isWithdrawalReq) {
+                                                "${tx.subtitle} • Approve to settle payout"
+                                            } else {
+                                                "UTR: ${tx.utrOrRef} • Approve to credit +${Formatters.formatInr(tx.commissionAmount)} (15%)"
+                                            },
                                             style = MaterialTheme.typography.labelMedium,
-                                            color = EmeraldCredit
+                                            color = if (isWithdrawalReq) RoyalGoldBright else EmeraldCredit
                                         )
                                         Spacer(modifier = Modifier.height(10.dp))
                                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -408,11 +421,41 @@ fun AdminPanelScreen(
                     }
 
                     1 -> {
+                        var userSearch by rememberSaveable { mutableStateOf("") }
+                        val filteredUsers = state.allUsers.filter { u ->
+                            userSearch.isBlank() ||
+                                u.email.contains(userSearch, ignoreCase = true) ||
+                                u.fullName.contains(userSearch, ignoreCase = true)
+                        }
                         LazyColumn(
                             contentPadding = PaddingValues(16.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            items(state.allUsers, key = { it.email }) { user ->
+                            item {
+                                LuxuryGlassCard(modifier = Modifier.fillMaxWidth()) {
+                                    Text(
+                                        text = "Registered & Logged-In Users (${state.allUsers.size})",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "Shows every Gmail ID signed in on this device, live session status, and login history. (Cross-device sync across different phones requires cloud database integration.)",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    OutlinedTextField(
+                                        value = userSearch,
+                                        onValueChange = { userSearch = it },
+                                        placeholder = { Text("Search user Gmail or name...") },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                            }
+
+                            items(filteredUsers, key = { it.email }) { user ->
                                 LuxuryGlassCard(modifier = Modifier.fillMaxWidth()) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
@@ -435,8 +478,31 @@ fun AdminPanelScreen(
                                                 style = MaterialTheme.typography.labelMedium,
                                                 color = EmeraldCredit
                                             )
+                                            Text(
+                                                text = if (user.lastLoginAt > 0L) {
+                                                    "Last Login: ${Formatters.formatDateTime(user.lastLoginAt)} • Logins: ${user.loginCount}"
+                                                } else {
+                                                    "Created by Admin • Logins: ${user.loginCount}"
+                                                },
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
                                         }
-                                        AccountStatusPill(status = user.status, label = user.status)
+                                        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            AccountStatusPill(status = user.status, label = user.status)
+                                            Surface(
+                                                shape = RoundedCornerShape(50),
+                                                color = if (user.isLoggedIn) EmeraldCredit.copy(alpha = 0.16f) else MaterialTheme.colorScheme.surfaceVariant
+                                            ) {
+                                                Text(
+                                                    text = if (user.isLoggedIn) "ONLINE" else "OFFLINE",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = if (user.isLoggedIn) EmeraldCredit else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    fontWeight = FontWeight.Bold,
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                        }
                                     }
                                     Spacer(modifier = Modifier.height(10.dp))
                                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

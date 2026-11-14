@@ -29,7 +29,7 @@ import kotlinx.coroutines.launch
         LiveTickerEntity::class,
         AdminVaultEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class JioPanalDatabase : RoomDatabase() {
@@ -38,6 +38,15 @@ abstract class JioPanalDatabase : RoomDatabase() {
     companion object {
         @Volatile
         private var INSTANCE: JioPanalDatabase? = null
+
+        private val MIGRATION_1_2 = object : androidx.room.migration.Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE users ADD COLUMN passwordHash TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE users ADD COLUMN lastLoginAt INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE users ADD COLUMN loginCount INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE users ADD COLUMN isLoggedIn INTEGER NOT NULL DEFAULT 0")
+            }
+        }
 
         fun getInstance(context: Context): JioPanalDatabase {
             return INSTANCE ?: synchronized(this) {
@@ -52,6 +61,7 @@ abstract class JioPanalDatabase : RoomDatabase() {
                 JioPanalDatabase::class.java,
                 "jio_panal_vault.db"
             )
+                .addMigrations(MIGRATION_1_2)
                 .addCallback(object : Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {
                         super.onCreate(db)

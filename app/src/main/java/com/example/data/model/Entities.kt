@@ -16,6 +16,10 @@ data class UserAccountEntity(
     val totalDeposited: Double = 0.0,
     val referralCode: String = "",
     val referredBy: String = "",
+    val passwordHash: String = "",
+    val lastLoginAt: Long = System.currentTimeMillis(),
+    val loginCount: Int = 1,
+    val isLoggedIn: Boolean = false,
     val createdAt: Long = System.currentTimeMillis()
 ) {
     companion object {

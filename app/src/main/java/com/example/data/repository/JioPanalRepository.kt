@@ -16,7 +16,7 @@ import com.example.data.prefs.UserPreferencesRepository
 import com.example.util.Formatters
 import com.example.util.NotificationHelper
 import kotlinx.coroutines.flow.Flow
-import java.security.SecureRandom
+import java.security.MessageDigest
 import kotlin.math.roundToInt
 
 class JioPanalRepository(
@@ -51,20 +51,30 @@ class JioPanalRepository(
         }
     }
 
-    fun generateSixDigitOtp(email: String): String {
-        val random = SecureRandom()
-        val otp = (100000 + random.nextInt(900000)).toString()
-        notificationHelper.sendLiveAlert(
-            title = "Jio Panal Gmail Security OTP",
-            body = "Your verification OTP for $email is $otp. Valid for 5 minutes. Do not share."
-        )
-        return otp
+    private fun hashPassword(email: String, password: String): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest("${email.trim().lowercase()}:$password".toByteArray(Charsets.UTF_8))
+        return digest.joinToString("") { "%02x".format(it) }
     }
 
-    suspend fun completeGmailLogin(email: String, referralCodeUsed: String = ""): UserAccountEntity {
+    suspend fun loginOrRegisterWithPassword(
+        email: String,
+        password: String,
+        referralCodeUsed: String = ""
+    ): Result<UserAccountEntity> {
         ensureInitialized()
         val cleanEmail = email.trim().lowercase()
+        if (!cleanEmail.contains("@") || !cleanEmail.contains(".")) {
+            return Result.failure(IllegalArgumentException("Please enter a valid Gmail address (e.g. name@gmail.com)"))
+        }
+        if (password.length < 6) {
+            return Result.failure(IllegalArgumentException("Password must be at least 6 characters"))
+        }
+
+        val now = System.currentTimeMillis()
+        val hashed = hashPassword(cleanEmail, password)
         var user = dao.getUser(cleanEmail)
+
         if (user == null) {
             val prefix = cleanEmail.substringBefore("@")
                 .replace(Regex("[^a-zA-Z0-9]"), "")
@@ -85,7 +95,12 @@ class JioPanalRepository(
                 fullName = displayName,
                 status = UserAccountEntity.STATUS_INACTIVE,
                 referralCode = generatedCode,
-                referredBy = referralCodeUsed.trim().uppercase()
+                referredBy = referralCodeUsed.trim().uppercase(),
+                passwordHash = hashed,
+                lastLoginAt = now,
+                loginCount = 1,
+                isLoggedIn = true,
+                createdAt = now
             )
             dao.upsertUser(user)
 
@@ -93,7 +108,7 @@ class JioPanalRepository(
                 NotificationAlertEntity(
                     userEmail = cleanEmail,
                     title = "Welcome to Jio Panal",
-                    smsBody = "JIO PANAL SMS ALERT: Welcome $cleanEmail! Activate your partner account (₹5,000) via vishalkumar90@upi to unlock 15% commission credits.",
+                    smsBody = "JIO PANAL ALERT: Welcome $cleanEmail! Activate your partner account (₹5,000) via vishalkumar90@upi to unlock 15% commission credits & RUN Panal.",
                     alertType = "SYSTEM"
                 )
             )
@@ -105,12 +120,31 @@ class JioPanalRepository(
                     message = "Namaste $displayName! Welcome to Jio Panal 24/7 Support. Ask anything about ₹5,000 Account Activation, 15% Commission, or Telegram (@Sainishaab9076)."
                 )
             )
+        } else {
+            if (user.passwordHash.isNotBlank() && user.passwordHash != hashed) {
+                return Result.failure(IllegalArgumentException("Incorrect password for $cleanEmail"))
+            }
+            val updated = user.copy(
+                passwordHash = if (user.passwordHash.isBlank()) hashed else user.passwordHash,
+                lastLoginAt = now,
+                loginCount = user.loginCount + 1,
+                isLoggedIn = true
+            )
+            dao.updateUser(updated)
+            user = updated
         }
+
         prefsRepo.setLoggedInEmail(cleanEmail)
-        return user
+        return Result.success(user)
     }
 
-    suspend fun logout() {
+    suspend fun logout(currentEmail: String? = null) {
+        if (!currentEmail.isNullOrBlank()) {
+            val user = dao.getUser(currentEmail.trim().lowercase())
+            if (user != null) {
+                dao.updateUser(user.copy(isLoggedIn = false))
+            }
+        }
         prefsRepo.setLoggedInEmail(null)
     }
 
@@ -233,7 +267,8 @@ class JioPanalRepository(
             return Result.failure(IllegalArgumentException("Insufficient wallet balance"))
         }
         val ref = "WD${System.currentTimeMillis().toString().takeLast(8)}"
-        dao.updateUser(user.copy(walletBalance = user.walletBalance - amount))
+        val remaining = user.walletBalance - amount
+        dao.updateUser(user.copy(walletBalance = remaining))
         dao.insertTransaction(
             TransactionEntity(
                 userEmail = email,
@@ -241,23 +276,30 @@ class JioPanalRepository(
                 amount = amount,
                 commissionAmount = 0.0,
                 utrOrRef = ref,
-                title = "Wallet Withdrawal",
-                subtitle = "To $destinationLabel • Ref $ref",
-                status = TransactionEntity.STATUS_SUCCESS,
+                title = "Withdrawal Request",
+                subtitle = "To $destinationLabel • Ref $ref • Pending Admin Approval",
+                status = TransactionEntity.STATUS_PENDING,
                 paymentMethod = "PAYOUT"
             )
         )
-        val smsBody = "JIO PANAL DEBIT/PAYOUT SMS: ${Formatters.formatInr(amount)} transferred to $destinationLabel. Ref: $ref. Avl Bal: ${Formatters.formatInr(user.walletBalance - amount)}."
+        val smsBody = "JIO PANAL WITHDRAWAL REQUEST: ${Formatters.formatInr(amount)} requested to $destinationLabel (Ref: $ref). Pending Admin approval."
         dao.insertAlert(
             NotificationAlertEntity(
                 userEmail = email,
-                title = "Withdrawal Processed (${Formatters.formatInr(amount)})",
+                title = "Withdrawal Request Submitted (${Formatters.formatInr(amount)})",
                 smsBody = smsBody,
                 amount = amount,
-                alertType = "CREDIT"
+                alertType = "DEPOSIT"
             )
         )
-        notificationHelper.sendLiveAlert("Payout Sent • ${Formatters.formatInr(amount)}", smsBody)
+        dao.insertTicker(
+            LiveTickerEntity(
+                message = "${Formatters.maskEmail(email)} requested Withdrawal",
+                highlightAmount = "${Formatters.formatInr(amount)} Pending",
+                isCredit = false
+            )
+        )
+        notificationHelper.sendLiveAlert("Withdrawal Request • ${Formatters.formatInr(amount)}", smsBody)
         return Result.success(Unit)
     }
 
@@ -336,7 +378,39 @@ class JioPanalRepository(
 
     suspend fun approveTransaction(txId: Long) {
         val tx = dao.getTransactionById(txId) ?: return
-        if (tx.status == TransactionEntity.STATUS_SUCCESS) return
+        if (tx.status != TransactionEntity.STATUS_PENDING) return
+
+        if (tx.type == TransactionEntity.TYPE_WITHDRAWAL) {
+            dao.updateTransaction(
+                tx.copy(
+                    status = TransactionEntity.STATUS_SUCCESS,
+                    title = "Withdrawal Approved & Settled",
+                    subtitle = tx.subtitle.replace("Pending Admin Approval", "Approved by Admin")
+                )
+            )
+            val smsBody = "JIO PANAL PAYOUT APPROVED: Withdrawal of ${Formatters.formatInr(tx.amount)} (Ref: ${tx.utrOrRef}) approved by Admin."
+            dao.insertAlert(
+                NotificationAlertEntity(
+                    userEmail = tx.userEmail,
+                    title = "Withdrawal Approved: ${Formatters.formatInr(tx.amount)}",
+                    smsBody = smsBody,
+                    amount = tx.amount,
+                    alertType = "CREDIT"
+                )
+            )
+            dao.insertTicker(
+                LiveTickerEntity(
+                    message = "${Formatters.maskEmail(tx.userEmail)} Withdrawal Settled",
+                    highlightAmount = "${Formatters.formatInr(tx.amount)} Paid",
+                    isCredit = false
+                )
+            )
+            notificationHelper.sendLiveAlert(
+                title = "Withdrawal Approved • ${Formatters.formatInr(tx.amount)}",
+                body = smsBody
+            )
+            return
+        }
 
         val vault = dao.getAdminVault() ?: AdminVaultEntity()
         val commission = ((tx.amount * (vault.commissionRatePercent / 100.0)) * 100.0).roundToInt() / 100.0
@@ -386,7 +460,7 @@ class JioPanalRepository(
                 )
             )
 
-            val smsBody = "CREDIT SMS ALERT: Your Jio Panal A/C ${Formatters.maskEmail(tx.userEmail)} is CREDITED with ${Formatters.formatInr(tx.amount)} + ${Formatters.formatInr(commission)} (15% Commission). Status: ACTIVE. Avl Bal: ${Formatters.formatInr(updatedUser.walletBalance)}."
+            val smsBody = "CREDIT ALERT: Your Jio Panal A/C ${Formatters.maskEmail(tx.userEmail)} is CREDITED with ${Formatters.formatInr(tx.amount)} + ${Formatters.formatInr(commission)} (15% Commission). Status: ACTIVE. Avl Bal: ${Formatters.formatInr(updatedUser.walletBalance)}."
             dao.insertAlert(
                 NotificationAlertEntity(
                     userEmail = tx.userEmail,
@@ -404,7 +478,7 @@ class JioPanalRepository(
                 )
             )
             notificationHelper.sendLiveAlert(
-                title = "Live Credit SMS • +${Formatters.formatInr(tx.amount + commission)}",
+                title = "Credit Approved • +${Formatters.formatInr(tx.amount + commission)}",
                 body = smsBody
             )
         }
@@ -416,6 +490,23 @@ class JioPanalRepository(
         dao.updateTransaction(tx.copy(status = TransactionEntity.STATUS_REJECTED))
 
         val user = dao.getUser(tx.userEmail)
+        if (tx.type == TransactionEntity.TYPE_WITHDRAWAL && user != null) {
+            val refundedBalance = user.walletBalance + tx.amount
+            dao.updateUser(user.copy(walletBalance = refundedBalance))
+            val smsBody = "JIO PANAL REFUND ALERT: Withdrawal request of ${Formatters.formatInr(tx.amount)} (Ref: ${tx.utrOrRef}) was declined by Admin and refunded to wallet. Bal: ${Formatters.formatInr(refundedBalance)}."
+            dao.insertAlert(
+                NotificationAlertEntity(
+                    userEmail = tx.userEmail,
+                    title = "Withdrawal Declined • Refunded",
+                    smsBody = smsBody,
+                    amount = tx.amount,
+                    alertType = "SECURITY"
+                )
+            )
+            notificationHelper.sendLiveAlert("Withdrawal Declined & Refunded", smsBody)
+            return
+        }
+
         if (user != null && tx.type == TransactionEntity.TYPE_ACTIVATION && user.status == UserAccountEntity.STATUS_PENDING) {
             dao.updateUser(user.copy(status = UserAccountEntity.STATUS_INACTIVE))
         }

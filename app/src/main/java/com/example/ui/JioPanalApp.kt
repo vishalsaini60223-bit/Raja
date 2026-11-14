@@ -73,7 +73,7 @@ import com.example.ui.screens.ActivateAndPayScreen
 import com.example.ui.screens.AdminPanelScreen
 import com.example.ui.screens.BiometricLockScreen
 import com.example.ui.screens.DashboardScreen
-import com.example.ui.screens.GmailOtpAuthScreen
+import com.example.ui.screens.GmailPasswordAuthScreen
 import com.example.ui.screens.LuxurySplashScreen
 import com.example.ui.screens.ProfileScreen
 import com.example.ui.screens.ReferralAndSupportScreen
@@ -142,24 +142,20 @@ fun JioPanalApp(viewModel: JioPanalViewModel = viewModel()) {
                 LuxurySplashScreen(onFinished = { viewModel.finishSplash() })
             }
 
-            AuthStage.EMAIL_INPUT, AuthStage.OTP_VERIFY -> {
+            AuthStage.EMAIL_INPUT -> {
                 Scaffold(
                     snackbarHost = { SnackbarHost(snackbarHostState) },
                     contentWindowInsets = WindowInsets.safeDrawing
                 ) { innerPadding ->
                     Box(modifier = Modifier.padding(innerPadding)) {
-                        GmailOtpAuthScreen(
-                            stage = state.authStage,
+                        GmailPasswordAuthScreen(
                             strings = strings,
                             selectedLanguage = state.language,
-                            pendingEmail = state.pendingEmail,
-                            activeOtpCode = state.activeOtpCode,
                             errorMessage = state.errorMessage,
                             onLanguageSelected = { viewModel.setLanguage(it) },
-                            onRequestOtp = { email, ref -> viewModel.requestGmailOtp(email, ref) },
-                            onResendOtp = { viewModel.resendOtp() },
-                            onBackToEmail = { viewModel.backToEmailInput() },
-                            onVerifyOtp = { otp -> viewModel.verifyOtpAndLogin(otp) }
+                            onLoginWithPassword = { email, pass, ref ->
+                                viewModel.loginWithPassword(email, pass, ref)
+                            }
                         )
                     }
                 }
@@ -297,6 +293,9 @@ fun JioPanalApp(viewModel: JioPanalViewModel = viewModel()) {
                                             },
                                             onToggleDarkMode = {
                                                 viewModel.setDarkMode(!state.preferences.isDarkMode)
+                                            },
+                                            onToggleRunPanal = {
+                                                viewModel.toggleRunPanal()
                                             }
                                         )
                                     }
