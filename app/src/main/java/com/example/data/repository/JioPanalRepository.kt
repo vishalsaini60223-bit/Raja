@@ -494,6 +494,124 @@ class JioPanalRepository(
         return Result.success(Unit)
     }
 
+    suspend fun creditUserByAdmin(
+        targetEmail: String,
+        amount: Double,
+        includeCommission: Boolean = true,
+        note: String = ""
+    ): Result<Unit> {
+        ensureInitialized()
+        val cleanEmail = targetEmail.trim().lowercase()
+        if (!cleanEmail.contains("@") || !cleanEmail.contains(".")) {
+            return Result.failure(IllegalArgumentException("Enter a valid user Gmail address"))
+        }
+        if (amount <= 0.0) {
+            return Result.failure(IllegalArgumentException("Enter a valid amount greater than ₹0"))
+        }
+
+        val vault = dao.getAdminVault() ?: AdminVaultEntity()
+        var user = dao.getUser(cleanEmail)
+        if (user == null) {
+            val prefix = cleanEmail.substringBefore("@")
+                .replace(Regex("[^a-zA-Z0-9]"), "")
+                .uppercase()
+                .take(6)
+                .ifBlank { "PARTNER" }
+            val displayName = cleanEmail.substringBefore("@")
+                .split(".", "_", "-")
+                .filter { it.isNotBlank() }
+                .joinToString(" ") { part -> part.replaceFirstChar { it.uppercase() } }
+                .ifBlank { "Jio Partner" }
+            user = UserAccountEntity(
+                email = cleanEmail,
+                fullName = displayName,
+                status = if (amount >= vault.activationAmount) UserAccountEntity.STATUS_ACTIVE else UserAccountEntity.STATUS_INACTIVE,
+                referralCode = "JP-$prefix-15"
+            )
+            dao.upsertUser(user)
+        }
+
+        val commission = if (includeCommission) {
+            ((amount * (vault.commissionRatePercent / 100.0)) * 100.0).roundToInt() / 100.0
+        } else {
+            0.0
+        }
+        val totalAdded = amount + commission
+        val newStatus = if (amount >= vault.activationAmount && user.status != UserAccountEntity.STATUS_SUSPENDED) {
+            UserAccountEntity.STATUS_ACTIVE
+        } else {
+            user.status
+        }
+        val updatedUser = user.copy(
+            status = newStatus,
+            walletBalance = user.walletBalance + totalAdded,
+            commissionEarned = user.commissionEarned + commission,
+            totalDeposited = user.totalDeposited + amount
+        )
+        dao.updateUser(updatedUser)
+
+        val ref = "ADMCR${System.currentTimeMillis().toString().takeLast(6)}"
+        val reason = note.trim().ifBlank { "Added by Admin Control Vault" }
+        dao.insertTransaction(
+            TransactionEntity(
+                userEmail = cleanEmail,
+                type = TransactionEntity.TYPE_DEPOSIT,
+                amount = amount,
+                commissionAmount = commission,
+                utrOrRef = ref,
+                title = "Admin Wallet Credit",
+                subtitle = "$reason • Ref $ref" + if (commission > 0.0) " • +15% Bonus" else "",
+                status = TransactionEntity.STATUS_SUCCESS,
+                paymentMethod = "ADMIN_CREDIT"
+            )
+        )
+
+        if (commission > 0.0) {
+            dao.insertTransaction(
+                TransactionEntity(
+                    userEmail = cleanEmail,
+                    type = TransactionEntity.TYPE_COMMISSION,
+                    amount = commission,
+                    commissionAmount = commission,
+                    utrOrRef = "COMM-$ref",
+                    title = "15% Commission Credited",
+                    subtitle = "15% bonus on Admin credit of ${Formatters.formatInr(amount)}",
+                    status = TransactionEntity.STATUS_SUCCESS,
+                    paymentMethod = "SYSTEM"
+                )
+            )
+        }
+
+        val smsBody = buildString {
+            append("CREDIT SMS ALERT: Your Jio Panal A/C ${Formatters.maskEmail(cleanEmail)} received ${Formatters.formatInr(amount)}")
+            if (commission > 0.0) {
+                append(" + ${Formatters.formatInr(commission)} (15% Comm)")
+            }
+            append(" from Admin Vault. Ref: $ref. Avl Bal: ${Formatters.formatInr(updatedUser.walletBalance)}.")
+        }
+        dao.insertAlert(
+            NotificationAlertEntity(
+                userEmail = cleanEmail,
+                title = "Admin Credit: +${Formatters.formatInr(totalAdded)}",
+                smsBody = smsBody,
+                amount = totalAdded,
+                alertType = "CREDIT"
+            )
+        )
+        dao.insertTicker(
+            LiveTickerEntity(
+                message = "${Formatters.maskEmail(cleanEmail)} Credited by Admin",
+                highlightAmount = "+${Formatters.formatInr(totalAdded)}",
+                isCredit = true
+            )
+        )
+        notificationHelper.sendLiveAlert(
+            title = "Live Credit SMS • +${Formatters.formatInr(totalAdded)}",
+            body = smsBody
+        )
+        return Result.success(Unit)
+    }
+
     suspend fun sendAdminReplyToUser(userEmail: String, message: String) {
         val clean = message.trim()
         if (clean.isEmpty()) return

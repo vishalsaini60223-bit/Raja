@@ -454,6 +454,27 @@ class JioPanalViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun creditUserByAdmin(
+        targetEmail: String,
+        amount: Double,
+        includeCommission: Boolean,
+        note: String
+    ) {
+        viewModelScope.launch {
+            val result = repository.creditUserByAdmin(targetEmail, amount, includeCommission, note)
+            result.onSuccess {
+                auxState.value = auxState.value.copy(
+                    errorMessage = null,
+                    feedbackMessage = "Added ${com.example.util.Formatters.formatInr(amount)} to ${targetEmail.trim().lowercase()}"
+                )
+            }.onFailure { err ->
+                auxState.value = auxState.value.copy(
+                    errorMessage = err.message ?: "Failed to credit user account"
+                )
+            }
+        }
+    }
+
     fun sendAdminSupportReply(userEmail: String, message: String) {
         viewModelScope.launch {
             repository.sendAdminReplyToUser(userEmail, message)

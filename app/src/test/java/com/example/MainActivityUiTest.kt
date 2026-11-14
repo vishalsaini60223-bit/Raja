@@ -87,5 +87,10 @@ class MainActivityUiTest {
                 .fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithTag("admin_withdraw_button").assertIsDisplayed()
+        composeRule.onNodeWithTag("admin_add_money_button").assertIsDisplayed().performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("admin_credit_email_input").assertIsDisplayed()
+        composeRule.onNodeWithTag("confirm_admin_credit_button").performClick()
+        composeRule.waitForIdle()
     }
 }

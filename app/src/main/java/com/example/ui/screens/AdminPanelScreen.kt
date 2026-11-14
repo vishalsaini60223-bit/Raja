@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -21,9 +22,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountBalanceWallet
+import androidx.compose.material.icons.filled.AddCard
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Security
@@ -39,6 +42,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
@@ -52,6 +56,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -79,6 +84,7 @@ fun AdminPanelScreen(
     onRejectTx: (Long) -> Unit,
     onSetUserStatus: (String, String) -> Unit,
     onWithdrawAdminPool: (Double, String) -> Unit,
+    onCreditUser: (targetEmail: String, amount: Double, includeCommission: Boolean, note: String) -> Unit,
     onUpdateAdminPasskey: (String) -> Unit,
     onSendAdminReply: (String, String) -> Unit
 ) {
@@ -89,6 +95,8 @@ fun AdminPanelScreen(
     var passkeyInput by rememberSaveable { mutableStateOf("") }
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var showWithdrawModal by rememberSaveable { mutableStateOf(false) }
+    var showCreditUserModal by rememberSaveable { mutableStateOf(false) }
+    var creditPrefillEmail by rememberSaveable { mutableStateOf("") }
     var showPasskeyModal by rememberSaveable { mutableStateOf(false) }
     var replyTargetEmail by rememberSaveable { mutableStateOf<String?>(null) }
 
@@ -207,39 +215,59 @@ fun AdminPanelScreen(
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 10.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text(
-                                text = strings.adminCommissionPool,
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                text = Formatters.formatInr(state.adminVault.commissionPoolBalance),
-                                style = MaterialTheme.typography.displaySmall,
-                                color = RoyalGoldBright,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "Commission Rate: ${state.adminVault.commissionRatePercent.toInt()}% • Activation: ₹${state.adminVault.activationAmount.toInt()}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = EmeraldCredit
-                            )
-                        }
-                        Button(
-                            onClick = { showWithdrawModal = true },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = RoyalGold
-                            ),
-                            modifier = Modifier.testTag("admin_withdraw_button")
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = strings.adminCommissionPool,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = Formatters.formatInr(state.adminVault.commissionPoolBalance),
+                            style = MaterialTheme.typography.displaySmall,
+                            color = RoyalGoldBright,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Commission Rate: ${state.adminVault.commissionRatePercent.toInt()}% • Activation: ₹${state.adminVault.activationAmount.toInt()}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = EmeraldCredit
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Icon(Icons.Default.AccountBalanceWallet, contentDescription = null)
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(strings.adminWithdrawBtn, fontWeight = FontWeight.Bold)
+                            Button(
+                                onClick = {
+                                    creditPrefillEmail = state.allUsers.firstOrNull()?.email ?: ""
+                                    showCreditUserModal = true
+                                },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = EmeraldCredit,
+                                    contentColor = Color(0xFF04140C)
+                                ),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("admin_add_money_button")
+                            ) {
+                                Icon(Icons.Default.AddCard, contentDescription = null)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Add Money", fontWeight = FontWeight.Bold, maxLines = 1)
+                            }
+                            Button(
+                                onClick = { showWithdrawModal = true },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = RoyalGold,
+                                    contentColor = Color(0xFF140F02)
+                                ),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("admin_withdraw_button")
+                            ) {
+                                Icon(Icons.Default.AccountBalanceWallet, contentDescription = null)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(strings.adminWithdrawBtn, fontWeight = FontWeight.Bold, maxLines = 1)
+                            }
                         }
                     }
                 }
@@ -369,8 +397,34 @@ fun AdminPanelScreen(
                                             )
                                         }
                                     }
-                                    TextButton(onClick = { replyTargetEmail = user.email }) {
-                                        Text("Send Support Reply to User")
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Button(
+                                            onClick = {
+                                                creditPrefillEmail = user.email
+                                                showCreditUserModal = true
+                                            },
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = EmeraldCredit,
+                                                contentColor = Color(0xFF04140C)
+                                            ),
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .testTag("user_add_money_${user.email}")
+                                        ) {
+                                            Icon(Icons.Default.AddCard, contentDescription = null)
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("Add Money", fontWeight = FontWeight.Bold)
+                                        }
+                                        OutlinedButton(
+                                            onClick = { replyTargetEmail = user.email },
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Text("Support Reply")
+                                        }
                                     }
                                 }
                             }
@@ -464,6 +518,133 @@ fun AdminPanelScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showPasskeyModal = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showCreditUserModal) {
+        var targetEmail by rememberSaveable(creditPrefillEmail) { mutableStateOf(creditPrefillEmail) }
+        var amountText by rememberSaveable { mutableStateOf("5000") }
+        var includeCommission by rememberSaveable { mutableStateOf(true) }
+        var noteText by rememberSaveable { mutableStateOf("") }
+
+        val parsedAmount = amountText.toDoubleOrNull() ?: 0.0
+        val bonusPreview = if (includeCommission && parsedAmount > 0.0) {
+            parsedAmount * (state.adminVault.commissionRatePercent / 100.0)
+        } else {
+            0.0
+        }
+
+        AlertDialog(
+            onDismissRequest = { showCreditUserModal = false },
+            title = { Text("Add Money to User Account") },
+            text = {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.verticalScroll(rememberScrollState())
+                ) {
+                    if (state.allUsers.isNotEmpty()) {
+                        Text(
+                            text = "Select Registered User",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            items(state.allUsers, key = { it.email }) { u ->
+                                FilterChip(
+                                    selected = targetEmail.equals(u.email, ignoreCase = true),
+                                    onClick = { targetEmail = u.email },
+                                    label = { Text(u.email, style = MaterialTheme.typography.labelSmall) }
+                                )
+                            }
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = targetEmail,
+                        onValueChange = { targetEmail = it },
+                        label = { Text("User Gmail Address") },
+                        placeholder = { Text("user@gmail.com") },
+                        leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("admin_credit_email_input")
+                    )
+
+                    OutlinedTextField(
+                        value = amountText,
+                        onValueChange = { if (it.all { c -> c.isDigit() || c == '.' }) amountText = it },
+                        label = { Text("Amount to Add (INR)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("admin_credit_amount_input")
+                    )
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf("500", "1000", "5000", "10000").forEach { preset ->
+                            FilterChip(
+                                selected = amountText == preset,
+                                onClick = { amountText = preset },
+                                label = { Text("₹$preset", style = MaterialTheme.typography.labelSmall) }
+                            )
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Include ${state.adminVault.commissionRatePercent.toInt()}% Commission",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "Total Credit: ${Formatters.formatInr(parsedAmount + bonusPreview)}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = EmeraldCredit
+                            )
+                        }
+                        Switch(
+                            checked = includeCommission,
+                            onCheckedChange = { includeCommission = it }
+                        )
+                    }
+
+                    OutlinedTextField(
+                        value = noteText,
+                        onValueChange = { noteText = it },
+                        label = { Text("Note / Reason (Optional)") },
+                        placeholder = { Text("e.g. Manual Deposit Credit") },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("admin_credit_note_input")
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val amt = amountText.toDoubleOrNull() ?: 0.0
+                        onCreditUser(targetEmail, amt, includeCommission, noteText)
+                        showCreditUserModal = false
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = EmeraldCredit,
+                        contentColor = Color(0xFF04140C)
+                    ),
+                    modifier = Modifier.testTag("confirm_admin_credit_button")
+                ) { Text("Credit Wallet", fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCreditUserModal = false }) { Text("Cancel") }
             }
         )
     }

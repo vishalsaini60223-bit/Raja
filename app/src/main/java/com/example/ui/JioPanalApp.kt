@@ -372,6 +372,9 @@ fun JioPanalApp(viewModel: JioPanalViewModel = viewModel()) {
                                             onRejectTx = { viewModel.rejectPendingTx(it) },
                                             onSetUserStatus = { email, status -> viewModel.setUserStatusByAdmin(email, status) },
                                             onWithdrawAdminPool = { amt, dest -> viewModel.withdrawAdminCommission(amt, dest) },
+                                            onCreditUser = { email, amt, includeComm, note ->
+                                                viewModel.creditUserByAdmin(email, amt, includeComm, note)
+                                            },
                                             onUpdateAdminPasskey = { viewModel.updateAdminPasskey(it) },
                                             onSendAdminReply = { email, msg -> viewModel.sendAdminSupportReply(email, msg) }
                                         )

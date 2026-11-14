@@ -89,6 +89,36 @@ class JioPanalRepositoryTest {
     }
 
     @Test
+    fun `admin can credit another users account directly with optional 15 percent commission`() = runBlocking {
+        repository.ensureInitialized()
+        val otherEmail = "friendpartner@gmail.com"
+
+        val resultWithComm = repository.creditUserByAdmin(
+            targetEmail = otherEmail,
+            amount = 5000.0,
+            includeCommission = true,
+            note = "Manual Activation Credit"
+        )
+        assertTrue(resultWithComm.isSuccess)
+
+        val creditedUser = repository.observeUser(otherEmail).first()!!
+        assertEquals(UserAccountEntity.STATUS_ACTIVE, creditedUser.status)
+        assertEquals(5750.0, creditedUser.walletBalance, 0.01)
+        assertEquals(750.0, creditedUser.commissionEarned, 0.01)
+
+        val resultNoComm = repository.creditUserByAdmin(
+            targetEmail = otherEmail,
+            amount = 1000.0,
+            includeCommission = false,
+            note = "Direct Bonus"
+        )
+        assertTrue(resultNoComm.isSuccess)
+        val updatedUser = repository.observeUser(otherEmail).first()!!
+        assertEquals(6750.0, updatedUser.walletBalance, 0.01)
+        assertEquals(750.0, updatedUser.commissionEarned, 0.01)
+    }
+
+    @Test
     fun `qr code generation succeeds for merchant upi`() {
         val qr = QrCodeGenerator.generateUpiQr(
             upiId = "vishalkumar90@upi",
