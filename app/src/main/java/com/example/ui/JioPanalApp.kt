@@ -377,7 +377,8 @@ fun JioPanalApp(viewModel: JioPanalViewModel = viewModel()) {
                                             onUpdateAdminPasskey = { viewModel.updateAdminPasskey(it) },
                                             onSendAdminReply = { userId, email, msg ->
                                                 viewModel.sendAdminSupportReply(userId, email, msg)
-                                            }
+                                            },
+                                            onRefreshCloud = { viewModel.refreshAdminCloudSync() }
                                         )
                                     }
                                 }

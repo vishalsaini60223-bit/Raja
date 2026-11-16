@@ -82,6 +82,7 @@ class JioPanalViewModel(application: Application) : AndroidViewModel(application
 
     private val repository = JioPanalRepository(application.applicationContext)
     private val auxState = MutableStateFlow(SessionAuxState())
+    private val adminRefreshTrigger = MutableStateFlow(0)
     private val authUserFlow: Flow<FirebaseUser?> = repository.observeAuthUser()
 
     private var syncedUidThisLaunch: String? = null
@@ -92,8 +93,14 @@ class JioPanalViewModel(application: Application) : AndroidViewModel(application
                 if (fbUser == null) {
                     syncedUidThisLaunch = null
                 } else if (fbUser.uid != syncedUidThisLaunch && !auxState.value.isAuthBusy) {
-                    syncedUidThisLaunch = fbUser.uid
-                    repository.syncSignedInUser(fbUser, incrementLogin = false)
+                    val res = repository.syncSignedInUser(fbUser, incrementLogin = false)
+                    if (res.isSuccess) {
+                        syncedUidThisLaunch = fbUser.uid
+                    } else {
+                        auxState.value = auxState.value.copy(
+                            errorMessage = res.exceptionOrNull()?.localizedMessage ?: "Cloud account sync failed"
+                        )
+                    }
                 }
             }
         }
@@ -139,31 +146,32 @@ class JioPanalViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    private val adminBundleFlow = authUserFlow.flatMapLatest { fbUser ->
-        val isVerifiedAdmin = fbUser != null &&
-            fbUser.isEmailVerified &&
-            fbUser.email?.trim()?.lowercase() == AdminVaultEntity.AUTHORIZED_ADMIN_EMAIL
-        if (!isVerifiedAdmin) {
-            flowOf(AdminBundle())
-        } else {
-            combine(
-                repository.observeAdminVault().safeCatch(AdminVaultEntity(), isAdminStream = true),
-                repository.observePendingTransactions().safeCatch(emptyList(), isAdminStream = true),
-                repository.observeAllUsers().safeCatch(emptyList(), isAdminStream = true),
-                repository.observeAllTransactions().safeCatch(emptyList(), isAdminStream = true)
-            ) { vault, pending, users, allTx ->
-                if (users.isNotEmpty() && auxState.value.adminSyncError != null) {
-                    auxState.value = auxState.value.copy(adminSyncError = null)
+    private val adminBundleFlow = combine(authUserFlow, adminRefreshTrigger) { fbUser, _ -> fbUser }
+        .flatMapLatest { fbUser ->
+            val isVerifiedAdmin = fbUser != null &&
+                fbUser.isEmailVerified &&
+                fbUser.email?.trim()?.lowercase() == AdminVaultEntity.AUTHORIZED_ADMIN_EMAIL
+            if (!isVerifiedAdmin) {
+                flowOf(AdminBundle())
+            } else {
+                combine(
+                    repository.observeAdminVault().safeCatch(AdminVaultEntity(), isAdminStream = true),
+                    repository.observePendingTransactions().safeCatch(emptyList(), isAdminStream = true),
+                    repository.observeAllUsers().safeCatch(emptyList(), isAdminStream = true),
+                    repository.observeAllTransactions().safeCatch(emptyList(), isAdminStream = true)
+                ) { vault, pending, users, allTx ->
+                    if (users.isNotEmpty() && auxState.value.adminSyncError != null) {
+                        auxState.value = auxState.value.copy(adminSyncError = null)
+                    }
+                    AdminBundle(
+                        vault = vault,
+                        pendingApprovals = pending,
+                        allUsers = users,
+                        allTransactions = allTx
+                    )
                 }
-                AdminBundle(
-                    vault = vault,
-                    pendingApprovals = pending,
-                    allUsers = users,
-                    allTransactions = allTx
-                )
             }
         }
-    }
 
     val uiState: StateFlow<JioPanalUiState> = combine(
         repository.preferencesFlow,
@@ -359,7 +367,6 @@ class JioPanalViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun submitActivationOrDeposit(amount: Double, utr: String, paymentMethod: String, isActivation: Boolean) {
-        val user = uiState.value.user ?: return
         val cleanUtr = utr.trim()
         if (cleanUtr.length < 6) {
             auxState.value = auxState.value.copy(errorMessage = "Enter a valid UTR / Reference number (min 6 characters)")
@@ -371,6 +378,12 @@ class JioPanalViewModel(application: Application) : AndroidViewModel(application
         }
         viewModelScope.launch {
             try {
+                val user = uiState.value.user ?: repository.ensureCurrentUserSynced().getOrElse { err ->
+                    auxState.value = auxState.value.copy(
+                        errorMessage = err.localizedMessage ?: "Account is still syncing to Cloud. Check internet and try again."
+                    )
+                    return@launch
+                }
                 repository.submitActivationOrDeposit(user, amount, cleanUtr, paymentMethod, isActivation)
                 auxState.value = auxState.value.copy(
                     errorMessage = null,
@@ -521,6 +534,27 @@ class JioPanalViewModel(application: Application) : AndroidViewModel(application
 
     fun lockAdminPanel() {
         auxState.value = auxState.value.copy(isAdminUnlocked = false)
+    }
+
+    fun refreshAdminCloudSync() {
+        if (!uiState.value.isAuthorizedAdmin) return
+        adminRefreshTrigger.value += 1
+        viewModelScope.launch {
+            val res = repository.verifyAdminCloudSync()
+            res.onSuccess { (userCount, pendingCount) ->
+                auxState.value = auxState.value.copy(
+                    adminSyncError = null,
+                    errorMessage = null,
+                    feedbackMessage = "Cloud synced: $userCount users • $pendingCount pending requests"
+                )
+            }.onFailure { err ->
+                val msg = err.localizedMessage ?: "Unable to reach Cloud server"
+                auxState.value = auxState.value.copy(
+                    adminSyncError = msg,
+                    errorMessage = msg
+                )
+            }
+        }
     }
 
     fun updateAdminPasskey(newKey: String) {

@@ -27,6 +27,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.QuerySnapshot
+import com.google.firebase.firestore.Source
 import com.google.firebase.initialize
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.awaitClose
@@ -366,6 +367,12 @@ class JioPanalRepository(
         }
     }
 
+    suspend fun ensureCurrentUserSynced(): Result<UserAccountEntity> {
+        val fbUser = auth.currentUser
+            ?: return Result.failure(IllegalStateException("Please sign in with Google first."))
+        return syncSignedInUser(fbUser, incrementLogin = false)
+    }
+
     suspend fun logout(context: Context? = null) {
         val current = auth.currentUser
         if (current != null) {
@@ -427,11 +434,14 @@ class JioPanalRepository(
         paymentMethod: String,
         isActivation: Boolean
     ) {
-        val uid = user.userId
-        val email = user.email
+        val uid = auth.currentUser?.uid ?: user.userId
+        val email = (auth.currentUser?.email ?: user.email).trim().lowercase().take(150)
         val config = getPublicOrAdminConfig(isAdmin = false)
         val commission = ((amount * (config.commissionRatePercent / 100.0)) * 100.0).roundToInt() / 100.0
-        val cleanUtr = utrNumber.trim().uppercase()
+        val cleanUtr = utrNumber.trim().uppercase().take(64)
+        val cleanMethod = paymentMethod.trim().take(40).ifBlank { "UPI" }
+        val title = (if (isActivation) "Account Activation Deposit" else "Gateway Deposit ($cleanMethod)").take(120)
+        val subtitle = "To ${config.merchantUpiId} • UTR $cleanUtr • Est. 15% Comm ${Formatters.formatInr(commission)}".take(240)
 
         try {
             val tx = TransactionEntity(
@@ -441,10 +451,10 @@ class JioPanalRepository(
                 amount = amount,
                 commissionAmount = commission,
                 utrOrRef = cleanUtr,
-                title = if (isActivation) "Account Activation Deposit" else "Gateway Deposit ($paymentMethod)",
-                subtitle = "To ${config.merchantUpiId} • UTR $cleanUtr • Est. 15% Comm ${Formatters.formatInr(commission)}",
+                title = title,
+                subtitle = subtitle,
                 status = TransactionEntity.STATUS_PENDING,
-                paymentMethod = paymentMethod
+                paymentMethod = cleanMethod
             )
             db.collection(COL_TRANSACTIONS).add(tx.toCreateMap()).awaitTask()
 
@@ -457,25 +467,31 @@ class JioPanalRepository(
                 ).awaitTask()
             }
 
-            val smsText = "JIO PANAL DEPOSIT ALERT: ${Formatters.formatInr(amount)} submitted via $paymentMethod (UTR: $cleanUtr). Pending Admin approval."
-            db.collection(COL_ALERTS).add(
-                NotificationAlertEntity(
-                    userId = uid,
-                    userEmail = email,
-                    title = "Deposit Submitted (${Formatters.formatInr(amount)})",
-                    smsBody = smsText,
-                    amount = amount,
-                    alertType = "DEPOSIT"
-                ).toCreateMap()
-            ).awaitTask()
+            val smsText = "JIO PANAL DEPOSIT ALERT: ${Formatters.formatInr(amount)} submitted via $cleanMethod (UTR: $cleanUtr). Pending Admin approval.".take(500)
+            try {
+                db.collection(COL_ALERTS).add(
+                    NotificationAlertEntity(
+                        userId = uid,
+                        userEmail = email,
+                        title = "Deposit Submitted (${Formatters.formatInr(amount)})".take(120),
+                        smsBody = smsText,
+                        amount = amount,
+                        alertType = "DEPOSIT"
+                    ).toCreateMap()
+                ).awaitTask()
 
-            db.collection(COL_LIVE_TICKER).add(
-                LiveTickerEntity(
-                    message = "${Formatters.maskEmail(email)} submitted ${Formatters.formatInr(amount)} via $paymentMethod",
-                    highlightAmount = "Pending Verify",
-                    isCredit = false
-                ).toCreateMap()
-            ).awaitTask()
+                db.collection(COL_LIVE_TICKER).add(
+                    LiveTickerEntity(
+                        message = "${Formatters.maskEmail(email)} submitted ${Formatters.formatInr(amount)} via $cleanMethod".take(160),
+                        highlightAmount = "Pending Verify",
+                        isCredit = false
+                    ).toCreateMap()
+                ).awaitTask()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Primary transaction and status update already succeeded in Firestore
+            }
 
             notificationHelper.sendLiveAlert(
                 title = "Deposit Alert • ${Formatters.formatInr(amount)}",
@@ -752,6 +768,25 @@ class JioPanalRepository(
             throw e
         } catch (_: FirebaseFirestoreException) {
             false
+        }
+    }
+
+    suspend fun verifyAdminCloudSync(): Result<Pair<Int, Int>> {
+        return try {
+            val usersSnap = db.collection(COL_USERS).get(Source.SERVER).awaitTask()
+            val pendingSnap = db.collection(COL_TRANSACTIONS)
+                .whereEqualTo("status", TransactionEntity.STATUS_PENDING)
+                .get(Source.SERVER)
+                .awaitTask()
+            Result.success(usersSnap.size() to pendingSnap.size())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            try {
+                FirestoreErrorHandler.handleFirestoreError(e, OperationType.LIST, COL_USERS, auth)
+            } catch (logged: Exception) {
+                Result.failure(logged)
+            }
         }
     }
 

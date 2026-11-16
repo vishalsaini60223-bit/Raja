@@ -43,6 +43,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -85,6 +86,13 @@ fun ActivateAndPayScreen(
     var customAmountText by rememberSaveable { mutableStateOf("5000") }
     var selectedGateway by rememberSaveable { mutableStateOf("UPI") }
     var utrInput by rememberSaveable { mutableStateOf("") }
+
+    LaunchedEffect(state.feedbackMessage) {
+        val msg = state.feedbackMessage ?: ""
+        if (msg.contains("sent to Admin", ignoreCase = true)) {
+            utrInput = ""
+        }
+    }
 
     val payAmount = if (isActivationMode) activationFee else (customAmountText.toDoubleOrNull() ?: 0.0)
     val estimatedCommission = payAmount * (vault.commissionRatePercent / 100.0)
@@ -366,9 +374,6 @@ fun ActivateAndPayScreen(
                 Button(
                     onClick = {
                         onSubmitPayment(payAmount, utrInput, selectedGateway, isActivationMode)
-                        if (utrInput.trim().length >= 6) {
-                            utrInput = ""
-                        }
                     },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary

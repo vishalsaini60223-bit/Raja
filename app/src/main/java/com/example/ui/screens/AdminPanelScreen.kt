@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -87,7 +88,8 @@ fun AdminPanelScreen(
     onWithdrawAdminPool: (Double, String) -> Unit,
     onCreditUser: (targetEmail: String, amount: Double, includeCommission: Boolean, deductFromPool: Boolean, note: String) -> Unit,
     onUpdateAdminPasskey: (String) -> Unit,
-    onSendAdminReply: (userId: String, userEmail: String, message: String) -> Unit
+    onSendAdminReply: (userId: String, userEmail: String, message: String) -> Unit,
+    onRefreshCloud: () -> Unit = {}
 ) {
     BackHandler {
         onLockAndExit()
@@ -125,6 +127,12 @@ fun AdminPanelScreen(
                 },
                 actions = {
                     if (state.isAdminUnlocked) {
+                        IconButton(
+                            onClick = onRefreshCloud,
+                            modifier = Modifier.testTag("admin_refresh_cloud_button")
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Sync Cloud")
+                        }
                         IconButton(onClick = { showPasskeyModal = true }) {
                             Icon(Icons.Default.Key, contentDescription = "Change Admin Key")
                         }
@@ -374,6 +382,12 @@ fun AdminPanelScreen(
                                             text = "No pending deposit, activation, or withdrawal requests right now.",
                                             style = MaterialTheme.typography.bodyMedium,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(
+                                            text = "Make sure BOTH phones are using the latest GitHub Release APK and tap the Sync icon (↻) above to check Cloud.",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = RoyalGoldBright
                                         )
                                     }
                                 }
