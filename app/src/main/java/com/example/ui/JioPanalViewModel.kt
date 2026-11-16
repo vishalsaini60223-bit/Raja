@@ -62,7 +62,8 @@ data class JioPanalUiState(
     val isAdminUnlocked: Boolean = false,
     val isPanelRunning: Boolean = false,
     val feedbackMessage: String? = null,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val adminSyncError: String? = null
 )
 
 private data class SessionAuxState(
@@ -72,7 +73,8 @@ private data class SessionAuxState(
     val isAdminUnlocked: Boolean = false,
     val isPanelRunning: Boolean = false,
     val feedbackMessage: String? = null,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val adminSyncError: String? = null
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -82,10 +84,27 @@ class JioPanalViewModel(application: Application) : AndroidViewModel(application
     private val auxState = MutableStateFlow(SessionAuxState())
     private val authUserFlow: Flow<FirebaseUser?> = repository.observeAuthUser()
 
-    private fun <T> Flow<T>.safeCatch(fallback: T): Flow<T> = catch { err ->
+    private var syncedUidThisLaunch: String? = null
+
+    init {
+        viewModelScope.launch {
+            authUserFlow.collect { fbUser ->
+                if (fbUser == null) {
+                    syncedUidThisLaunch = null
+                } else if (fbUser.uid != syncedUidThisLaunch && !auxState.value.isAuthBusy) {
+                    syncedUidThisLaunch = fbUser.uid
+                    repository.syncSignedInUser(fbUser, incrementLogin = false)
+                }
+            }
+        }
+    }
+
+    private fun <T> Flow<T>.safeCatch(fallback: T, isAdminStream: Boolean = false): Flow<T> = catch { err ->
         if (err is CancellationException) throw err
+        val msg = err.localizedMessage ?: "Cloud sync permission error"
         auxState.value = auxState.value.copy(
-            errorMessage = err.localizedMessage ?: "Cloud sync permission error"
+            errorMessage = msg,
+            adminSyncError = if (isAdminStream) msg else auxState.value.adminSyncError
         )
         emit(fallback)
     }
@@ -128,11 +147,14 @@ class JioPanalViewModel(application: Application) : AndroidViewModel(application
             flowOf(AdminBundle())
         } else {
             combine(
-                repository.observeAdminVault().safeCatch(AdminVaultEntity()),
-                repository.observePendingTransactions().safeCatch(emptyList()),
-                repository.observeAllUsers().safeCatch(emptyList()),
-                repository.observeAllTransactions().safeCatch(emptyList())
+                repository.observeAdminVault().safeCatch(AdminVaultEntity(), isAdminStream = true),
+                repository.observePendingTransactions().safeCatch(emptyList(), isAdminStream = true),
+                repository.observeAllUsers().safeCatch(emptyList(), isAdminStream = true),
+                repository.observeAllTransactions().safeCatch(emptyList(), isAdminStream = true)
             ) { vault, pending, users, allTx ->
+                if (users.isNotEmpty() && auxState.value.adminSyncError != null) {
+                    auxState.value = auxState.value.copy(adminSyncError = null)
+                }
                 AdminBundle(
                     vault = vault,
                     pendingApprovals = pending,
@@ -192,7 +214,8 @@ class JioPanalViewModel(application: Application) : AndroidViewModel(application
             isAdminUnlocked = isAuthorizedAdmin && aux.isAdminUnlocked,
             isPanelRunning = isUserActive && aux.isPanelRunning,
             feedbackMessage = aux.feedbackMessage,
-            errorMessage = aux.errorMessage
+            errorMessage = aux.errorMessage,
+            adminSyncError = aux.adminSyncError
         )
     }.stateIn(
         scope = viewModelScope,
@@ -210,6 +233,7 @@ class JioPanalViewModel(application: Application) : AndroidViewModel(application
             val res = GoogleAuthHelper.signInSilentIfAuthorized(activityContext)
             val fbUser = res.getOrNull()
             if (fbUser != null) {
+                syncedUidThisLaunch = fbUser.uid
                 repository.syncSignedInUser(fbUser)
                 auxState.value = auxState.value.copy(isSessionUnlocked = false, errorMessage = null)
             }
@@ -218,10 +242,11 @@ class JioPanalViewModel(application: Application) : AndroidViewModel(application
 
     fun signInWithGoogle(activityContext: Context, referralCode: String = "") {
         if (auxState.value.isAuthBusy) return
-        auxState.value = auxState.value.copy(isAuthBusy = true, errorMessage = null)
+        auxState.value = auxState.value.copy(isAuthBusy = true, errorMessage = null, adminSyncError = null)
         viewModelScope.launch {
             val authRes = GoogleAuthHelper.signInInteractive(activityContext)
             authRes.onSuccess { fbUser ->
+                syncedUidThisLaunch = fbUser.uid
                 val syncRes = repository.syncSignedInUser(fbUser, referralCode)
                 syncRes.onSuccess {
                     auxState.value = auxState.value.copy(

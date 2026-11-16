@@ -280,6 +280,20 @@ fun AdminPanelScreen(
                             style = MaterialTheme.typography.labelSmall,
                             color = EmeraldCredit
                         )
+                        Text(
+                            text = "Cloud Users Synced: ${state.allUsers.size} • Pending Requests: ${state.pendingApprovals.size}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        if (!state.adminSyncError.isNullOrBlank()) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Sync Error: ${state.adminSyncError}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = RubyAlert,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
                         Spacer(modifier = Modifier.height(12.dp))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -445,6 +459,14 @@ fun AdminPanelScreen(
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
+                                    if (state.allUsers.size <= 1) {
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(
+                                            text = "Only 1 account is in Cloud right now. When another user signs in with Google on the updated AI Studio APK, their ID & requests appear here live.",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = RoyalGoldBright
+                                        )
+                                    }
                                     Spacer(modifier = Modifier.height(10.dp))
                                     OutlinedTextField(
                                         value = userSearch,

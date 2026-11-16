@@ -209,20 +209,21 @@ class JioPanalRepository(
 
     fun observeAllUsers(): Flow<List<UserAccountEntity>> =
         snapshotQueryFlow(
-            db.collection(COL_USERS).orderBy("lastLoginAt", Query.Direction.DESCENDING),
+            db.collection(COL_USERS),
             COL_USERS
         ) { snap ->
             snap.documents.mapNotNull { UserAccountEntity.fromSnapshot(it) }
+                .sortedByDescending { it.lastLoginAt }
         }
 
     fun observeAllTransactions(): Flow<List<TransactionEntity>> =
         snapshotQueryFlow(
-            db.collection(COL_TRANSACTIONS)
-                .orderBy("createdAt", Query.Direction.DESCENDING)
-                .limit(100),
+            db.collection(COL_TRANSACTIONS),
             COL_TRANSACTIONS
         ) { snap ->
             snap.documents.mapNotNull { TransactionEntity.fromSnapshot(it) }
+                .sortedByDescending { it.createdAt }
+                .take(100)
         }
 
     private suspend fun getPublicOrAdminConfig(isAdmin: Boolean): AdminVaultEntity {
@@ -259,13 +260,15 @@ class JioPanalRepository(
 
     suspend fun syncSignedInUser(
         firebaseUser: FirebaseUser,
-        referralCodeUsed: String = ""
+        referralCodeUsed: String = "",
+        incrementLogin: Boolean = true
     ): Result<UserAccountEntity> {
         val uid = firebaseUser.uid
-        val cleanEmail = (firebaseUser.email ?: "").trim().lowercase()
+        val cleanEmail = (firebaseUser.email ?: "").trim().lowercase().take(150)
         if (cleanEmail.isBlank() || !cleanEmail.contains("@")) {
             return Result.failure(IllegalStateException("Google account has no verified email address."))
         }
+        val cleanReferredBy = referralCodeUsed.trim().uppercase().take(32)
         val path = "$COL_USERS/$uid"
         return try {
             val userRef = db.collection(COL_USERS).document(uid)
@@ -282,13 +285,15 @@ class JioPanalRepository(
                     .uppercase()
                     .take(6)
                     .ifBlank { "PARTNER" }
-                val generatedCode = "JP-$prefix-15"
-                val displayName = firebaseUser.displayName?.takeIf { it.isNotBlank() }
+                val generatedCode = "JP-$prefix-15".take(32)
+                val displayName = (firebaseUser.displayName?.takeIf { it.isNotBlank() }
                     ?: cleanEmail.substringBefore("@")
                         .split(".", "_", "-")
                         .filter { it.isNotBlank() }
                         .joinToString(" ") { part -> part.replaceFirstChar { it.uppercase() } }
-                        .ifBlank { "Jio Partner" }
+                        .ifBlank { "Jio Partner" })
+                    .trim()
+                    .take(100)
 
                 val newUser = UserAccountEntity(
                     userId = uid,
@@ -296,7 +301,7 @@ class JioPanalRepository(
                     fullName = displayName,
                     status = UserAccountEntity.STATUS_INACTIVE,
                     referralCode = generatedCode,
-                    referredBy = referralCodeUsed.trim().uppercase(),
+                    referredBy = cleanReferredBy,
                     loginCount = 1,
                     isLoggedIn = true
                 )
@@ -307,7 +312,7 @@ class JioPanalRepository(
                         userId = uid,
                         userEmail = cleanEmail,
                         title = "Welcome to Jio Panal",
-                        smsBody = "JIO PANAL ALERT: Welcome $cleanEmail! Activate your partner account (₹5,000) via vishalkumar90@upi to unlock 15% commission credits & RUN Panal.",
+                        smsBody = "JIO PANAL ALERT: Welcome $cleanEmail! Activate your partner account (₹5,000) via vishalkumar90@upi to unlock 15% commission credits & RUN Panal.".take(500),
                         alertType = "SYSTEM"
                     ).toCreateMap()
                 ).awaitTask()
@@ -317,7 +322,7 @@ class JioPanalRepository(
                         userId = uid,
                         userEmail = cleanEmail,
                         senderRole = "SUPPORT",
-                        message = "Namaste $displayName! Welcome to Jio Panal 24/7 Support. Your account syncs live across devices. Ask anything about ₹5,000 Activation, 15% Commission, or Telegram (@Sainishaab9076)."
+                        message = "Namaste $displayName! Welcome to Jio Panal 24/7 Support. Your account syncs live across devices. Ask anything about ₹5,000 Activation, 15% Commission, or Telegram (@Sainishaab9076).".take(1000)
                     ).toCreateMap()
                 ).awaitTask()
 
@@ -326,18 +331,19 @@ class JioPanalRepository(
                     createdAt = System.currentTimeMillis()
                 )
             } else {
-                val nextCount = existing.loginCount + 1
+                val nextCount = if (incrementLogin) existing.loginCount + 1 else existing.loginCount
                 val updates = hashMapOf<String, Any>(
                     "isLoggedIn" to true,
                     "loginCount" to nextCount,
                     "lastLoginAt" to FieldValue.serverTimestamp(),
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
-                if (existing.fullName.isBlank() && !firebaseUser.displayName.isNullOrBlank()) {
-                    updates["fullName"] = firebaseUser.displayName!!.trim()
+                val rawDisplayName = firebaseUser.displayName?.trim()?.take(100)
+                if (existing.fullName.isBlank() && !rawDisplayName.isNullOrBlank()) {
+                    updates["fullName"] = rawDisplayName
                 }
-                if (existing.referredBy.isBlank() && referralCodeUsed.isNotBlank()) {
-                    updates["referredBy"] = referralCodeUsed.trim().uppercase()
+                if (existing.referredBy.isBlank() && cleanReferredBy.isNotBlank()) {
+                    updates["referredBy"] = cleanReferredBy
                 }
                 userRef.update(updates).awaitTask()
                 existing.copy(
